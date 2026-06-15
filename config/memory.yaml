@@ -1,0 +1,30 @@
+memory:
+  history_limit: 5
+  top_k: 5
+  min_similarity_score: 0.6
+  candidate_multiplier: 4
+  min_final_score: 0.05
+  conditional_memory_injection: false
+  structured_storage_enabled: true
+  async_extraction: true
+  root_dir: data/memory
+  log_dir: data/message_logs
+  decay:
+    enabled: true
+    archive_threshold: 0.01
+    access_boost_factor: 0.2
+    access_boost_cap: 1.5
+    explicit_keep_importance_threshold: 0.85
+    rates:
+      explicit_preference:
+        decay_rate: 0.005
+        decay_floor: 0.7
+      stable_profile:
+        decay_rate: 0.01
+        decay_floor: 0.5
+      interest:
+        decay_rate: 0.03
+        decay_floor: 0.3
+      summary:
+        decay_rate: 0.06
+        decay_floor: 0.2

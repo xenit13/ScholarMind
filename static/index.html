@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScholarMind</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f4d6;</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Sora:wght@600;700&family=Syne:wght@600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+</head>
+<body>
+  <script>if(localStorage.getItem('sm_theme')==='light')document.documentElement.setAttribute('data-theme','light');</script>
+  <!-- Login Page -->
+  <div id="login-modal" class="login-overlay">
+    <canvas id="login-canvas"></canvas>
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="login-logo" aria-hidden="true">
+          <svg viewBox="0 0 64 64" fill="none">
+            <polygon class="logo-hex-outer" points="32,4 56,18 56,46 32,60 8,46 8,18"/>
+            <polygon class="logo-hex-inner" points="32,15 46,24 46,40 32,49 18,40 18,24"/>
+            <line x1="32" y1="4" x2="32" y2="15" class="logo-line"/>
+            <line x1="56" y1="18" x2="46" y2="24" class="logo-line"/>
+            <line x1="56" y1="46" x2="46" y2="40" class="logo-line"/>
+            <line x1="32" y1="60" x2="32" y2="49" class="logo-line"/>
+            <line x1="8" y1="46" x2="18" y2="40" class="logo-line"/>
+            <line x1="8" y1="18" x2="18" y2="24" class="logo-line"/>
+            <line x1="32" y1="15" x2="46" y2="40" class="logo-line-cross"/>
+            <line x1="32" y1="15" x2="18" y2="40" class="logo-line-cross"/>
+            <line x1="18" y1="24" x2="46" y2="40" class="logo-line-cross"/>
+            <line x1="46" y1="24" x2="18" y2="40" class="logo-line-cross"/>
+            <line x1="18" y1="24" x2="46" y2="24" class="logo-line-cross"/>
+            <line x1="18" y1="40" x2="46" y2="40" class="logo-line-cross"/>
+            <circle cx="32" cy="15" r="2.5" class="logo-node"/>
+            <circle cx="46" cy="24" r="1.8" class="logo-node-alt"/>
+            <circle cx="46" cy="40" r="1.8" class="logo-node-alt"/>
+            <circle cx="32" cy="49" r="1.8" class="logo-node"/>
+            <circle cx="18" cy="40" r="1.8" class="logo-node-alt"/>
+            <circle cx="18" cy="24" r="1.8" class="logo-node-alt"/>
+            <circle cx="32" cy="32" r="4" class="logo-glow"/>
+            <circle cx="32" cy="32" r="2.5" class="logo-core"/>
+          </svg>
+        </div>
+        <h1 class="login-title">ScholarMind</h1>
+        <p class="login-subtitle">AI-Powered Research Assistant</p>
+      </div>
+      <div class="login-form">
+        <div class="login-field">
+          <label for="login-user-id">User ID</label>
+          <input type="text" id="login-user-id" placeholder="Enter your user ID..." autofocus>
+        </div>
+        <button id="login-btn" class="login-btn">
+          <span>Enter</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
+        <p class="login-footer">Neural Retrieval · Knowledge Graph · Adaptive Memory</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="hidden">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <!-- Chat sidebar -->
+      <div id="sidebar-chat">
+        <div class="sidebar-header">
+          <button id="new-chat-btn" class="btn-new-chat">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Chat
+          </button>
+        </div>
+        <div id="conversation-list" class="conversation-list"></div>
+      </div>
+      <!-- Admin sidebar -->
+      <div id="sidebar-admin" class="hidden">
+        <div class="sidebar-header">
+          <div class="admin-sidebar-title">Admin</div>
+        </div>
+        <nav class="admin-tabs">
+          <div class="admin-tab active" data-tab="dashboard">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Dashboard
+          </div>
+          <div class="admin-tab" data-tab="requests">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            Requests
+          </div>
+        </nav>
+      </div>
+      <div class="sidebar-footer">
+        <button id="theme-toggle" class="btn-theme-toggle" title="Toggle theme">
+          <svg class="icon-dark" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="icon-light" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <div id="user-info" class="user-info" title="Click to logout">
+          <div class="user-avatar" id="user-avatar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg></div>
+          <span id="user-name">User</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main id="main-content">
+      <!-- Chat View -->
+      <div id="chat-view">
+        <div id="chat-header" class="chat-header">
+          <button id="sidebar-toggle" class="btn-icon" title="Toggle sidebar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <h1 id="chat-title">ScholarMind</h1>
+          <div class="header-right"></div>
+        </div>
+
+        <div id="chat-messages" class="chat-messages"></div>
+
+        <div id="input-area" class="input-area">
+          <div class="input-wrapper">
+            <div id="feature-selector" class="feature-selector">
+              <button id="feature-btn" class="btn-feature" title="Select feature">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+              </button>
+              <div id="feature-dropdown" class="feature-dropdown hidden">
+                <div class="feature-option selected" data-value="">Default Chat</div>
+                <div class="feature-option" data-value="qa">Paper Q&A</div>
+                <div class="feature-option" data-value="idea_novelty">Idea Novelty</div>
+                <div class="feature-option" data-value="trend">Trend Analysis</div>
+                <div class="feature-option" data-value="cross_domain">Cross-Domain</div>
+                <div class="feature-option" data-value="study_plan">Study Plan</div>
+                <div class="feature-option" data-value="paper_reading">Paper Reading</div>
+              </div>
+            </div>
+            <textarea id="message-input" placeholder="Send a message..." rows="1"></textarea>
+            <button id="send-btn" class="btn-send" disabled title="Send message">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+          <div id="feature-label" class="feature-label hidden">
+            <span id="feature-label-text"></span>
+            <button id="feature-label-close" class="btn-label-close">&times;</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Admin Dashboard View -->
+      <div id="admin-view" class="hidden">
+        <div class="chat-header">
+          <button id="admin-back-btn" class="btn-icon" title="Back to chat">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          </button>
+          <h1 class="admin-dash-title">Dashboard</h1>
+          <div class="header-right">
+            <input type="text" id="admin-user-filter" class="admin-input" placeholder="Filter by user..." list="user-list">
+            <datalist id="user-list"></datalist>
+            <label class="auto-refresh-label">
+              <input type="checkbox" id="admin-auto-refresh">
+              <span>Auto</span>
+            </label>
+            <select id="admin-time-range" class="admin-select">
+              <option value="24">Last 24h</option>
+              <option value="168" selected>Last 7 days</option>
+              <option value="720">Last 30 days</option>
+            </select>
+            <button id="admin-refresh" class="btn-icon" title="Refresh">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            </button>
+            <select id="admin-export-format" class="admin-select" style="margin-right:2px">
+              <option value="csv">CSV</option>
+              <option value="json">JSON</option>
+            </select>
+            <button id="admin-export" class="btn-icon" title="Export">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+          </div>
+        </div>
+        <div id="admin-content" class="admin-content">
+          <div id="admin-loading" class="admin-loading">Loading dashboard...</div>
+          <div id="admin-stats" class="hidden">
+
+            <!-- Dashboard panel -->
+            <div id="panel-dashboard">
+
+            <!-- ① Core Stat Cards (8) -->
+            <div class="stats-grid stats-grid-4">
+              <div class="stat-card">
+                <div class="stat-title">Total Requests</div>
+                <div class="stat-value" id="stat-total">--</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-title">Success Rate</div>
+                <div class="stat-value" id="stat-success-rate">--</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-title">Avg Latency</div>
+                <div class="stat-value" id="stat-avg-latency">--</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-title">Avg Token</div>
+                <div class="stat-value" id="stat-avg-token">--</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-title">Overall Score</div>
+                <div class="stat-value" id="stat-avg-score">--</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-title">RAG Score</div>
+                <div class="stat-value" id="stat-rag-score">--</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-title">Memory Score</div>
+                <div class="stat-value" id="stat-memory-score">--</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-title">Answer Score</div>
+                <div class="stat-value" id="stat-answer-quality">--</div>
+              </div>
+            </div>
+
+            <!-- ② Score Trend + Query Type Distribution -->
+            <div class="chart-row">
+              <div class="chart-section chart-section-wide">
+                <h3>Score Trend</h3>
+                <div class="chart-legend" id="trend-legend"></div>
+                <canvas id="score-trend-chart"></canvas>
+                <div id="chart-tooltip" class="chart-tooltip"></div>
+              </div>
+              <div class="chart-section chart-section-narrow">
+                <h3>Query Type Distribution</h3>
+                <canvas id="query-type-chart"></canvas>
+              </div>
+            </div>
+
+            <!-- ③ Strategy Comparison + Memory Metrics -->
+            <div class="chart-row">
+              <div class="chart-section chart-section-wide">
+                <h3>RAG Strategy Comparison</h3>
+                <canvas id="strategy-chart"></canvas>
+              </div>
+              <div class="chart-section chart-section-narrow">
+                <h3>Memory Metrics</h3>
+                <div class="memory-grid" id="memory-stats"></div>
+              </div>
+            </div>
+
+            </div><!-- /panel-dashboard -->
+
+            <!-- Requests panel -->
+            <div id="panel-requests" class="hidden">
+            <div class="low-scores-section">
+              <div class="requests-mode-bar">
+                <button class="mode-btn active" data-mode="all">All Requests</button>
+                <button class="mode-btn" data-mode="low">Low Score Only</button>
+              </div>
+              <div class="low-scores-toolbar">
+                <input type="text" id="ls-search" class="admin-input" placeholder="Search queries..." style="width:200px">
+                <select id="ls-type-filter" class="admin-select">
+                  <option value="">All Types</option>
+                </select>
+              </div>
+              <div id="low-scores-table" class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th></th>
+                      <th>Query</th>
+                      <th class="sortable" data-sort="query_type">Type <span class="sort-arrow"></span></th>
+                      <th class="sortable" data-sort="overall_score">Overall <span class="sort-arrow"></span></th>
+                      <th class="sortable" data-sort="rag_score">RAG <span class="sort-arrow"></span></th>
+                      <th class="sortable" data-sort="memory_score">Memory <span class="sort-arrow"></span></th>
+                      <th class="sortable" data-sort="answer_quality_score">Answer <span class="sort-arrow"></span></th>
+                      <th class="sortable" data-sort="created_at">Time <span class="sort-arrow"></span></th>
+                    </tr>
+                  </thead>
+                  <tbody id="low-scores-body"></tbody>
+                </table>
+              </div>
+              <div id="low-scores-pagination" class="pagination hidden">
+                <button id="ls-prev" class="btn-page" disabled>&laquo; Prev</button>
+                <span id="ls-page-info" class="page-info"></span>
+                <button id="ls-next" class="btn-page">Next &raquo;</button>
+              </div>
+            </div>
+            </div><!-- /panel-requests -->
+
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+  (function(){
+    var canvas=document.getElementById('login-canvas');if(!canvas)return;
+    var ctx=canvas.getContext('2d'),particles=[],w,h,animId,mx=-9999,my=-9999;
+    function isLight(){return document.documentElement.getAttribute('data-theme')==='light';}
+    function resize(){w=canvas.width=window.innerWidth;h=canvas.height=window.innerHeight;}
+    function init(){
+      resize();particles=[];
+      var count=Math.min(Math.floor((w*h)/14000),160);
+      for(var i=0;i<count;i++){
+        var hue=Math.random()>0.7?160:(Math.random()>0.5?220:200);
+        particles.push({x:Math.random()*w,y:Math.random()*h,
+          vx:(Math.random()-0.5)*0.22,vy:(Math.random()-0.5)*0.22,
+          r:Math.random()*1.4+0.5,hue:hue});
+      }
+    }
+    function draw(){
+      ctx.clearRect(0,0,w,h);
+      var light=isLight(),maxD=130,maxD2=maxD*maxD;
+      var lineColor=light?'rgba(0,160,120,':'rgba(0,229,160,';
+      var mouseColor=light?'rgba(60,100,200,':'rgba(79,124,255,';
+      var pSat=light?'50%':'80%',pLit=light?'45%':'70%',pAlpha=light?'0.22':'0.35';
+      for(var i=0;i<particles.length;i++){
+        for(var j=i+1;j<particles.length;j++){
+          var dx=particles[i].x-particles[j].x,dy=particles[i].y-particles[j].y,d2=dx*dx+dy*dy;
+          if(d2<maxD2){var d=Math.sqrt(d2),a=(1-d/maxD)*0.12;
+            ctx.beginPath();ctx.moveTo(particles[i].x,particles[i].y);
+            ctx.lineTo(particles[j].x,particles[j].y);
+            ctx.strokeStyle=lineColor+a+')';ctx.lineWidth=0.5;ctx.stroke();
+          }
+        }
+      }
+      for(var k=0;k<particles.length;k++){
+        var p=particles[k],ddx=p.x-mx,ddy=p.y-my,dd2=ddx*ddx+ddy*ddy;
+        if(dd2<40000){var dd=Math.sqrt(dd2),aa=(1-dd/200)*0.2;
+          ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(mx,my);
+          ctx.strokeStyle=mouseColor+aa+')';ctx.lineWidth=0.6;ctx.stroke();
+        }
+      }
+      for(var m=0;m<particles.length;m++){
+        var q=particles[m];
+        q.x+=q.vx;q.y+=q.vy;
+        if(q.x<-10)q.x=w+10;if(q.x>w+10)q.x=-10;
+        if(q.y<-10)q.y=h+10;if(q.y>h+10)q.y=-10;
+        ctx.beginPath();ctx.arc(q.x,q.y,q.r,0,6.283);
+        ctx.fillStyle='hsla('+q.hue+','+pSat+','+pLit+','+pAlpha+')';ctx.fill();
+      }
+      animId=requestAnimationFrame(draw);
+    }
+    canvas.addEventListener('mousemove',function(e){mx=e.clientX;my=e.clientY;});
+    canvas.addEventListener('mouseleave',function(){mx=-9999;my=-9999;});
+    window.addEventListener('resize',function(){resize();});
+    init();draw();
+    var modal=document.getElementById('login-modal');
+    if(modal){var obs=new MutationObserver(function(){
+      if(modal.classList.contains('hidden')){cancelAnimationFrame(animId);obs.disconnect();canvas.remove();}
+    });obs.observe(modal,{attributes:true,attributeFilter:['class']});}
+  })();
+  </script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

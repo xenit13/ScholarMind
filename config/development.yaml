@@ -1,0 +1,4 @@
+environment: development
+bootstrap_sample_data: true
+qdrant_location: data/qdrant
+celery_task_always_eager: true

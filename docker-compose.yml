@@ -1,0 +1,142 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - SCHOLARMIND_ENVIRONMENT=production
+      - ZAI_API_KEY=${ZAI_API_KEY}
+      - ZAI_BASE_URL=${ZAI_BASE_URL}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY}
+      - SCHOLARMIND_EMBEDDING_MODEL=${SCHOLARMIND_EMBEDDING_MODEL:-embedding-3}
+      - SCHOLARMIND_EMBEDDING_BASE_URL=${SCHOLARMIND_EMBEDDING_BASE_URL:-}
+      - SCHOLARMIND_RERANKER_PROVIDER=${SCHOLARMIND_RERANKER_PROVIDER:-local}
+      - SCHOLARMIND_RERANKER_MODEL=${SCHOLARMIND_RERANKER_MODEL:-bge-reranker-v2-m3}
+      - SCHOLARMIND_RERANKER_ENABLED=${SCHOLARMIND_RERANKER_ENABLED:-true}
+      - SCHOLARMIND_RERANKER_BASE_URL=${SCHOLARMIND_RERANKER_BASE_URL:-}
+      - SCHOLARMIND_RERANKER_API_KEY=${SCHOLARMIND_RERANKER_API_KEY:-}
+      - SCHOLARMIND_RERANKER_REQUEST_TIMEOUT_SECONDS=${SCHOLARMIND_RERANKER_REQUEST_TIMEOUT_SECONDS:-10.0}
+      - SCHOLARMIND_DATABASE_URL=sqlite:///data/sqlite/scholar_mind.db
+      - SCHOLARMIND_CHECKPOINT_DATABASE_URL=sqlite:///data/sqlite/checkpoints.db
+      - SCHOLARMIND_QDRANT_URL=http://qdrant:6333
+      - SCHOLARMIND_REDIS_URL=redis://redis:6379/0
+      - SCHOLARMIND_BOOTSTRAP_SAMPLE_DATA=true
+      - SCHOLARMIND_CELERY_TASK_ALWAYS_EAGER=false
+    volumes:
+      - ./data:/app/data:z
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles:
+      - tunnel
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --metrics
+      - ${CLOUDFLARED_METRICS_ADDRESS:-0.0.0.0:2000}
+      - --url
+      - ${CLOUDFLARED_TARGET_URL:-http://app:8000}
+    environment:
+      - CLOUDFLARED_TARGET_URL=${CLOUDFLARED_TARGET_URL:-http://app:8000}
+      - CLOUDFLARED_METRICS_ADDRESS=${CLOUDFLARED_METRICS_ADDRESS:-0.0.0.0:2000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  cloudflared-named:
+    image: cloudflare/cloudflared:latest
+    profiles:
+      - named-tunnel
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --metrics
+      - ${CLOUDFLARED_METRICS_ADDRESS:-0.0.0.0:2000}
+      - run
+      - --token
+      - ${CLOUDFLARED_TUNNEL_TOKEN:-}
+    environment:
+      - CLOUDFLARED_TUNNEL_TOKEN=${CLOUDFLARED_TUNNEL_TOKEN:-}
+      - CLOUDFLARED_METRICS_ADDRESS=${CLOUDFLARED_METRICS_ADDRESS:-0.0.0.0:2000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: celery -A scholar_mind.pipeline.tasks:celery_app worker --loglevel=info
+    environment:
+      - SCHOLARMIND_ENVIRONMENT=production
+      - ZAI_API_KEY=${ZAI_API_KEY}
+      - ZAI_BASE_URL=${ZAI_BASE_URL}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY}
+      - SCHOLARMIND_EMBEDDING_MODEL=${SCHOLARMIND_EMBEDDING_MODEL:-embedding-3}
+      - SCHOLARMIND_EMBEDDING_BASE_URL=${SCHOLARMIND_EMBEDDING_BASE_URL:-}
+      - SCHOLARMIND_RERANKER_PROVIDER=${SCHOLARMIND_RERANKER_PROVIDER:-local}
+      - SCHOLARMIND_RERANKER_MODEL=${SCHOLARMIND_RERANKER_MODEL:-bge-reranker-v2-m3}
+      - SCHOLARMIND_RERANKER_ENABLED=${SCHOLARMIND_RERANKER_ENABLED:-true}
+      - SCHOLARMIND_RERANKER_BASE_URL=${SCHOLARMIND_RERANKER_BASE_URL:-}
+      - SCHOLARMIND_RERANKER_API_KEY=${SCHOLARMIND_RERANKER_API_KEY:-}
+      - SCHOLARMIND_RERANKER_REQUEST_TIMEOUT_SECONDS=${SCHOLARMIND_RERANKER_REQUEST_TIMEOUT_SECONDS:-10.0}
+      - SCHOLARMIND_DATABASE_URL=sqlite:///data/sqlite/scholar_mind.db
+      - SCHOLARMIND_CHECKPOINT_DATABASE_URL=sqlite:///data/sqlite/checkpoints.db
+      - SCHOLARMIND_QDRANT_URL=http://qdrant:6333
+      - SCHOLARMIND_REDIS_URL=redis://redis:6379/0
+      - SCHOLARMIND_BOOTSTRAP_SAMPLE_DATA=true
+      - SCHOLARMIND_CELERY_TASK_ALWAYS_EAGER=false
+    volumes:
+      - ./data:/app/data:z
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    command: celery -A scholar_mind.pipeline.tasks:celery_app beat --loglevel=info
+    environment:
+      - SCHOLARMIND_ENVIRONMENT=production
+      - ZAI_API_KEY=${ZAI_API_KEY}
+      - ZAI_BASE_URL=${ZAI_BASE_URL}
+      - SCHOLARMIND_DATABASE_URL=sqlite:///data/sqlite/scholar_mind.db
+      - SCHOLARMIND_CHECKPOINT_DATABASE_URL=sqlite:///data/sqlite/checkpoints.db
+      - SCHOLARMIND_QDRANT_URL=http://qdrant:6333
+      - SCHOLARMIND_REDIS_URL=redis://redis:6379/0
+      - SCHOLARMIND_BOOTSTRAP_SAMPLE_DATA=true
+      - SCHOLARMIND_CELERY_TASK_ALWAYS_EAGER=false
+    volumes:
+      - ./data:/app/data:z
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  qdrant:
+    image: qdrant/qdrant:v1.17.1
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./data/qdrant:/qdrant/storage:z
+    healthcheck:
+      test: ["CMD-SHELL", "bash -lc 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data:z
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

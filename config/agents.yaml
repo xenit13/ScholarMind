@@ -1,0 +1,7 @@
+agents:
+  planner_model: light
+  researcher_model: light
+  trend_model: light
+  writer_model: reasoning
+  reviewer_model: reasoning
+  crossdomain_model: reasoning

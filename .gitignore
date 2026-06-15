@@ -1,0 +1,47 @@
+# Local secrets and environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and packaging
+.venv/
+venv/
+env/
+build/
+dist/
+docs/
+*.egg-info/
+
+# Runtime state
+*.log
+*.pid
+*.db
+*.sqlite
+*.sqlite3
+celerybeat-schedule*
+
+# Application runtime data
+data/*
+!data/processed/
+!data/processed/sample_papers.json
+
+# Local editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local assistant/tooling state
+.claude/
+.codex
+AGENTS.md
