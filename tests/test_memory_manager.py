@@ -81,6 +81,22 @@ class _Embedder:
         return [0.1, 0.2]
 
 
+def _discrete_structured() -> dict:
+    return {
+        "schema_version": "memory_fact_v1",
+        "fact_kind": "discrete_fact",
+        "subject": {"type": "user", "id": "u1", "label": "用户"},
+        "entity": {"type": "language", "id": "java", "label": "Java"},
+        "attribute": "preference",
+        "value": {"canonical": "dislike", "text": "不喜欢"},
+        "polarity": "negative",
+        "certainty": "explicit",
+        "temporal": {"tense": "current"},
+        "conflict_key": "subject:user:u1|entity:language:java|attribute:preference",
+        "source_mode": "conversation",
+    }
+
+
 def test_memory_manager_recovers_alias_memory_payload(tmp_path):
     llm = _StructuredOutputLLM(
         [
@@ -401,6 +417,58 @@ def test_memory_manager_decay_disabled_uses_semantic_order(tmp_path):
 
     assert hit_count == 1
     assert injected_text == "- 语义分更高的旧记忆"
+
+
+def test_memory_manager_formats_discrete_memory_in_structured_context(tmp_path):
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'memory.db'}",
+        memory_root_dir=str(tmp_path / "memories"),
+        log_dir=str(tmp_path / "logs"),
+        qdrant_location=":memory:",
+        bootstrap_sample_data=False,
+        memory_top_k=1,
+        memory_min_similarity_score=0.0,
+        memory_min_final_score=0.0,
+    )
+    init_database(settings)
+    repository = MemoryRepository(build_session_factory(settings))
+    now = datetime.now(UTC)
+    repository.upsert(
+        StructuredMemoryRecord(
+            memory_id="mem_discrete",
+            user_id="u1",
+            scope="user",
+            memory_type="preference",
+            content="用户不喜欢 Java。",
+            structured=_discrete_structured(),
+            source="conversation",
+            importance=0.9,
+            confidence=0.9,
+            status="active",
+            created_at=now,
+            updated_at=now,
+            decay_rate=0.01,
+            decay_floor=0.5,
+        )
+    )
+    index = _Index(
+        search_results=[SimpleNamespace(score=0.9, payload={"memory_id": "mem_discrete"})]
+    )
+    manager = MemoryManager(
+        settings,
+        index,
+        _Embedder(),
+        llm=None,
+        memory_repository=repository,
+    )
+
+    injected_text, hit_count = manager.get_context_sync("u1", "不要推荐 Java 项目")
+
+    assert hit_count == 1
+    assert injected_text == (
+        "- [memory_fact_v1] attribute=preference; entity=Java; value=dislike; "
+        "polarity=negative; confidence=0.90; content=用户不喜欢 Java。"
+    )
 
 
 def test_memory_manager_save_sync_writes_structured_repository_when_available(tmp_path):

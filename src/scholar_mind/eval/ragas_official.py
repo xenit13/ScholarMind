@@ -5,7 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ragas.embeddings.base import BaseRagasEmbedding
+try:
+    from ragas.embeddings.base import BaseRagasEmbedding
+except ImportError as exc:  # pragma: no cover - environment-dependent optional stack
+    _RAGAS_IMPORT_ERROR = exc
+
+    class BaseRagasEmbedding:  # type: ignore[no-redef]
+        pass
+
+else:
+    _RAGAS_IMPORT_ERROR = None
 
 from scholar_mind.models.rag_eval_models import OfficialRagasScores
 
@@ -32,6 +41,10 @@ class ProjectRagasEmbeddings(BaseRagasEmbedding):
 
 def build_ragas_llm(settings):
     """Build the InstructorLLM required by ragas collection metrics."""
+    if _RAGAS_IMPORT_ERROR is not None:
+        raise RuntimeError("openai and ragas are required for official RAG evaluation") from (
+            _RAGAS_IMPORT_ERROR
+        )
     try:
         from openai import AsyncOpenAI
         from ragas.llms import llm_factory
@@ -123,6 +136,10 @@ class OfficialRagasEvaluator:
 
     @staticmethod
     def _build_metrics(llm, embeddings) -> dict[str, Any]:
+        if _RAGAS_IMPORT_ERROR is not None:
+            raise RuntimeError("ragas is required for official RAG evaluation") from (
+                _RAGAS_IMPORT_ERROR
+            )
         try:
             from ragas.metrics.collections import (  # type: ignore
                 AnswerRelevancy,

@@ -105,11 +105,37 @@ def _candidate(
     )
 
 
+def _discrete_structured(
+    value: str,
+    polarity: str,
+    *,
+    conflict_key: str = "subject:user:u1|entity:language:java|attribute:preference",
+    certainty: str = "explicit",
+    tense: str = "current",
+    subject_id: str = "u1",
+    entity_id: str = "java",
+) -> dict:
+    return {
+        "schema_version": "memory_fact_v1",
+        "fact_kind": "discrete_fact",
+        "subject": {"type": "user", "id": subject_id, "label": "用户"},
+        "entity": {"type": "language", "id": entity_id, "label": "Java"},
+        "attribute": "preference",
+        "value": {"canonical": value, "text": value},
+        "polarity": polarity,
+        "certainty": certainty,
+        "temporal": {"tense": tense},
+        "conflict_key": conflict_key,
+        "source_mode": "conversation",
+    }
+
+
 def _record(
     memory_id: str,
     content: str = "用户偏好简洁回答。",
     *,
     memory_type: str = "preference",
+    structured: dict | None = None,
 ) -> StructuredMemoryRecord:
     now = datetime(2026, 5, 19, 8, 0, tzinfo=UTC)
     return StructuredMemoryRecord(
@@ -118,6 +144,7 @@ def _record(
         scope="user",
         memory_type=memory_type,
         content=content,
+        structured=structured or {},
         source="conversation",
         importance=0.8,
         confidence=0.9,
@@ -366,6 +393,210 @@ def test_operation_applier_uses_judge_for_embedding_gray_zone_distinct(tmp_path)
     assert result.memory_id != "mem_existing"
     assert len(repository.list_active("u1")) == 2
     assert len(judge.prompts) == 1
+
+
+def test_operation_applier_skips_discrete_duplicate_with_same_value(tmp_path):
+    repository = _repository(tmp_path)
+    repository.upsert(
+        _record(
+            "mem_existing",
+            "用户不喜欢 Java。",
+            structured=_discrete_structured("dislike", "negative"),
+        )
+    )
+    applier = MemoryOperationApplier(repository, _Index(), _Embedder())
+
+    result = applier.apply_candidate(
+        user_id="u1",
+        candidate=_candidate(
+            "用户明确不喜欢 Java。",
+            structured=_discrete_structured("dislike", "negative"),
+        ),
+        request_id="req1",
+        session_id="s1",
+    )
+
+    stored = repository.get("u1", "mem_existing")
+    assert result.operation == "NONE"
+    assert result.memory_id == "mem_existing"
+    assert stored is not None
+    assert stored.status == "active"
+    assert len(repository.list_active("u1")) == 1
+
+
+def test_operation_applier_upgrades_matching_memory_with_discrete_structure(tmp_path):
+    repository = _repository(tmp_path)
+    repository.upsert(
+        _record(
+            "mem_existing",
+            "用户喜欢 Java。",
+            structured={"explicit": True},
+        )
+    )
+    applier = MemoryOperationApplier(repository, _Index(), _Embedder())
+
+    result = applier.apply_candidate(
+        user_id="u1",
+        candidate=_candidate(
+            "用户喜欢 Java。",
+            structured=_discrete_structured("like", "positive"),
+        ),
+        request_id="req1",
+        session_id="s1",
+    )
+
+    stored = repository.get("u1", "mem_existing")
+    assert result.operation == "UPDATE"
+    assert result.memory_id == "mem_existing"
+    assert stored is not None
+    assert stored.structured["schema_version"] == "memory_fact_v1"
+    assert (
+        stored.structured["conflict_key"]
+        == "subject:user|entity:language:java|attribute:preference"
+    )
+
+
+def test_operation_applier_supersedes_conflicting_discrete_memory(tmp_path):
+    repository = _repository(tmp_path)
+    repository.upsert(
+        _record(
+            "mem_existing",
+            "用户喜欢 Java。",
+            structured=_discrete_structured("like", "positive"),
+        )
+    )
+    index = _Index()
+    applier = MemoryOperationApplier(repository, index, _Embedder())
+
+    result = applier.apply_candidate(
+        user_id="u1",
+        candidate=_candidate(
+            "用户不喜欢 Java。",
+            structured=_discrete_structured("dislike", "negative"),
+            confidence=0.9,
+        ),
+        request_id="req1",
+        session_id="s1",
+    )
+
+    old_record = repository.get("u1", "mem_existing")
+    new_record = repository.get("u1", result.memory_id)
+    active = repository.list_active("u1")
+    events = repository.list_operation_events("u1")
+    assert result.operation == "UPDATE"
+    assert result.memory_id != "mem_existing"
+    assert old_record is not None
+    assert old_record.status == "superseded"
+    assert old_record.superseded_by == result.memory_id
+    assert new_record is not None
+    assert new_record.status == "active"
+    assert new_record.supersedes == ["mem_existing"]
+    assert [record.memory_id for record in active] == [result.memory_id]
+    assert [record.status for record in index.upserts] == ["active", "superseded"]
+    assert events[0].operation == "UPDATE"
+    assert events[0].old_record["memory_id"] == "mem_existing"
+    assert events[0].new_record["memory_id"] == result.memory_id
+
+
+def test_operation_applier_supersedes_discrete_conflict_key_variants(tmp_path):
+    repository = _repository(tmp_path)
+    repository.upsert(
+        _record(
+            "mem_existing",
+            "用户喜欢 Java。",
+            structured=_discrete_structured(
+                "like",
+                "positive",
+                subject_id="u1",
+                entity_id="java",
+                conflict_key="subject:user:u1|entity:language:java|attribute:preference",
+            ),
+        )
+    )
+    applier = MemoryOperationApplier(repository, _Index(), _Embedder())
+
+    result = applier.apply_candidate(
+        user_id="u1",
+        candidate=_candidate(
+            "用户不喜欢 Java。",
+            structured=_discrete_structured(
+                "dislike",
+                "negative",
+                subject_id="user:unknown",
+                entity_id="language:java",
+                conflict_key=(
+                    "subject:user:unknown|entity:language:java|attribute:preference"
+                ),
+            ),
+            confidence=0.9,
+        ),
+        request_id="req1",
+        session_id="s1",
+    )
+
+    old_record = repository.get("u1", "mem_existing")
+    assert result.operation == "UPDATE"
+    assert result.memory_id != "mem_existing"
+    assert old_record is not None
+    assert old_record.status == "superseded"
+
+
+def test_operation_applier_rejects_low_confidence_discrete_conflict(tmp_path):
+    repository = _repository(tmp_path)
+    repository.upsert(
+        _record(
+            "mem_existing",
+            "用户喜欢 Java。",
+            structured=_discrete_structured("like", "positive"),
+        )
+    )
+    applier = MemoryOperationApplier(repository, _Index(), _Embedder())
+
+    result = applier.apply_candidate(
+        user_id="u1",
+        candidate=_candidate(
+            "用户可能不喜欢 Java。",
+            structured=_discrete_structured("dislike", "negative"),
+            confidence=0.74,
+        ),
+        request_id="req1",
+        session_id="s1",
+    )
+
+    stored = repository.get("u1", "mem_existing")
+    assert result.operation == "NONE"
+    assert result.memory_id == "mem_existing"
+    assert stored is not None
+    assert stored.status == "active"
+    assert len(repository.list_active("u1")) == 1
+
+
+def test_operation_applier_keeps_past_and_current_discrete_facts_active(tmp_path):
+    repository = _repository(tmp_path)
+    repository.upsert(
+        _record(
+            "mem_existing",
+            "用户现在喜欢 Java。",
+            structured=_discrete_structured("like", "positive", tense="current"),
+        )
+    )
+    applier = MemoryOperationApplier(repository, _Index(), _Embedder())
+
+    result = applier.apply_candidate(
+        user_id="u1",
+        candidate=_candidate(
+            "用户以前不喜欢 Java。",
+            structured=_discrete_structured("dislike", "negative", tense="past"),
+            confidence=0.9,
+        ),
+        request_id="req1",
+        session_id="s1",
+    )
+
+    active = repository.list_active("u1")
+    assert result.operation == "ADD"
+    assert result.memory_id != "mem_existing"
+    assert [record.memory_id for record in active] == ["mem_existing", result.memory_id]
 
 
 def test_operation_applier_matches_specific_type_against_interaction_summary(tmp_path):

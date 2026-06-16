@@ -20,6 +20,7 @@ from scholar_mind.config.settings import Settings
 from scholar_mind.eval.context import get_eval_context, record_memory_event
 from scholar_mind.memory.compressor import MessageCompressor
 from scholar_mind.memory.decay import MemoryScoreInput, rank_memory_candidates
+from scholar_mind.memory.discrete import format_discrete_memory
 from scholar_mind.memory.extraction import extract_memory_candidates_from_round
 from scholar_mind.memory.operations import MemoryOperationApplier
 from scholar_mind.memory.repository import MemoryRepository
@@ -244,7 +245,10 @@ class MemoryManager:
             )
             return "", 0
         self.memory_repository.record_access(user_id, injected_memory_ids)
-        lines = [f"- {item.record.content}" for item in ranked]
+        lines = [
+            f"- {format_discrete_memory(item.record) or item.record.content}"
+            for item in ranked
+        ]
         injected_text = "\n".join(lines)
         self._record_memory_retrieval_event_v2(
             user_id=user_id,

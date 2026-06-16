@@ -132,6 +132,81 @@ def test_candidate_extraction_prompt_documents_management_operations():
     assert "RESTORE" in prompt
 
 
+def test_candidate_extraction_prompt_documents_discrete_memory_schema():
+    round_messages = [
+        {
+            "message": serialize_messages(
+                [HumanMessage(content="请记住我不喜欢 Java，之后别推荐 Java 项目")]
+            )[0]
+        }
+    ]
+
+    prompt = _build_candidate_extraction_prompt(round_messages)
+
+    assert "memory_fact_v1" in prompt
+    assert "structured.subject" in prompt
+    assert "structured.entity" in prompt
+    assert "structured.attribute" in prompt
+    assert "structured.value" in prompt
+    assert "structured.polarity" in prompt
+    assert "structured.certainty" in prompt
+    assert "structured.temporal" in prompt
+    assert "structured.conflict_key" in prompt
+
+
+def test_extract_memory_candidates_normalizes_discrete_fact_payload():
+    llm = _StructuredOutputLLM(
+        {
+            "parsed": None,
+            "raw": _RawResult(
+                "```json\n"
+                "{"
+                '"candidates": ['
+                "{"
+                '"memory_type": "preference",'
+                '"content": "用户不喜欢 Java。",'
+                '"structured": {'
+                '"subject": {"type": "user", "id": "u1", "label": "用户"},'
+                '"entity": {"type": "language", "id": "java", "label": "Java"},'
+                '"attribute": "preference",'
+                '"value": {"canonical": "dislike", "text": "不喜欢"},'
+                '"polarity": "negative",'
+                '"certainty": "explicit",'
+                '"temporal": {"tense": "current"}'
+                "},"
+                '"keywords": ["Java"],'
+                '"importance": 0.8,'
+                '"confidence": 0.9,'
+                '"source": "conversation",'
+                '"evidence": [{"message_id": "s1-1-0", "role": "human"}]'
+                "}"
+                "]"
+                "}\n"
+                "```",
+                {"input_tokens": 9, "output_tokens": 6, "total_tokens": 15},
+            ),
+            "parsing_error": ValueError("invalid json"),
+        }
+    )
+    round_messages = [
+        {
+            "message": serialize_messages(
+                [HumanMessage(content="请记住我不喜欢 Java，之后别推荐 Java 项目")]
+            )[0]
+        }
+    ]
+
+    candidates, _, success = extract_memory_candidates_from_round(llm, round_messages)
+
+    assert success is True
+    assert candidates[0].structured["schema_version"] == "memory_fact_v1"
+    assert candidates[0].structured["fact_kind"] == "discrete_fact"
+    assert (
+        candidates[0].structured["conflict_key"]
+        == "subject:user|entity:language:java|attribute:preference"
+    )
+
+
 def test_paper_qa_preferences_keep_distinct_candidates_without_identity_keys():
     llm = _StructuredOutputLLM(
         {

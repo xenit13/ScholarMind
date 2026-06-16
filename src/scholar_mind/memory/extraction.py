@@ -12,6 +12,7 @@ from scholar_mind.agents.common import (
     merge_usage,
     raw_output_text,
 )
+from scholar_mind.memory.discrete import normalize_discrete_structured
 from scholar_mind.models.domain import MemoryCandidate, MemoryCandidateExtractionOutput
 from scholar_mind.utils.messages import deserialize_messages
 
@@ -162,6 +163,27 @@ def _build_candidate_extraction_prompt(round_messages: list[dict]) -> str:
         "set `structured.operation` to `RESTORE`.\n"
         "For normal new or changed facts, omit `structured.operation`; the memory manager "
         "will decide ADD, UPDATE, or NONE by memory type, content, and semantic match.\n\n"
+        "# Discrete fact storage\n"
+        "For each normal durable fact, also fill `structured` as a `memory_fact_v1` object "
+        "when the fact can be represented as subject-entity-attribute-value.\n"
+        "- Set `structured.schema_version` to `memory_fact_v1` and "
+        "`structured.fact_kind` to `discrete_fact`.\n"
+        "- `structured.subject`: object with `type`, `id`, and `label` for the owner, "
+        "usually the user.\n"
+        "- `structured.entity`: object with `type`, `id`, and `label` for the target "
+        "concept, tool, paper, workflow, topic, or constraint.\n"
+        "- `structured.attribute`: the durable property, such as `preference`, "
+        "`knowledge_level`, `research_interest`, `workflow`, or `constraint`.\n"
+        "- `structured.value`: object with `canonical` and `text` for the stored value.\n"
+        "- `structured.polarity`: `positive`, `negative`, `neutral`, or `unknown`.\n"
+        "- `structured.certainty`: `explicit`, `inferred`, or `weak_inference`; use "
+        "`explicit` only when the user directly stated the fact.\n"
+        "- `structured.temporal`: object with `tense` as `current`, `past`, `planned`, "
+        "or `unknown`.\n"
+        "- `structured.conflict_key`: stable key built from subject, entity, and attribute, "
+        "for example `subject:user:u1|entity:language:java|attribute:preference`.\n"
+        "- `structured.source_mode`: how the fact was obtained, such as `conversation` "
+        "or `explicit`.\n\n"
         "# Output\n"
         "Return valid JSON only, with this top-level field:\n"
         "`candidates`: array of objects matching "
@@ -216,6 +238,8 @@ def _candidate_from_payload(item: Any) -> MemoryCandidate | None:
     payload["content"] = str(content).strip()
     payload.setdefault("memory_type", payload.pop("type", "interaction_summary"))
     payload.setdefault("structured", {})
+    if isinstance(payload["structured"], dict):
+        payload["structured"] = normalize_discrete_structured(payload["structured"])
     payload.setdefault("keywords", [])
     payload.setdefault("importance", 0.6)
     payload.setdefault("confidence", 0.7)

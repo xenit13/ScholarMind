@@ -14,6 +14,13 @@ from pydantic import BaseModel, Field
 
 from scholar_mind.agents.common import invoke_structured_output_once
 from scholar_mind.memory.decay import default_decay_parameters
+from scholar_mind.memory.discrete import (
+    DISCRETE_CONFLICT_MIN_CONFIDENCE,
+    discrete_value_token,
+    normalize_discrete_structured,
+    parse_discrete_fact,
+    skips_temporal_conflict,
+)
 from scholar_mind.memory.repository import MemoryRepository
 from scholar_mind.models.domain import (
     MemoryCandidate,
@@ -74,6 +81,7 @@ class MemoryOperationApplier:
         request_id: str | None = None,
         session_id: str | None = None,
     ) -> MemoryOperationResult:
+        candidate = _normalize_candidate_structured(candidate)
         operation = _requested_operation(candidate)
         if operation == MemoryOperationName.DELETE:
             match = self._find_matching_record(
@@ -114,6 +122,14 @@ class MemoryOperationApplier:
                 request_id=request_id,
                 session_id=session_id,
             )
+        discrete_result = self._apply_discrete_candidate(
+            user_id=user_id,
+            candidate=candidate,
+            request_id=request_id,
+            session_id=session_id,
+        )
+        if discrete_result is not None:
+            return discrete_result
         match = self._find_matching_record(
             user_id=user_id,
             candidate=candidate,
@@ -136,6 +152,14 @@ class MemoryOperationApplier:
                 session_id=session_id,
             )
         if match.relation == "duplicate":
+            if _candidate_adds_discrete_structure(match.record, candidate):
+                return self._update(
+                    user_id=user_id,
+                    candidate=candidate,
+                    existing=match.record,
+                    request_id=request_id,
+                    session_id=session_id,
+                )
             return self._none(
                 user_id=user_id,
                 candidate=candidate,
@@ -160,12 +184,46 @@ class MemoryOperationApplier:
         request_id: str | None,
         session_id: str | None,
     ) -> MemoryOperationResult:
+        record = self._build_new_record(
+            user_id=user_id,
+            candidate=candidate,
+            request_id=request_id,
+            session_id=session_id,
+        )
+        self.repository.upsert(record)
+        self._upsert_index(record)
+        event = self._record_event(
+            user_id=user_id,
+            operation=MemoryOperationName.ADD,
+            candidate=candidate,
+            new_record=record,
+            request_id=request_id,
+            session_id=session_id,
+            reason="new durable memory",
+        )
+        return MemoryOperationResult(
+            operation=MemoryOperationName.ADD,
+            memory_id=record.memory_id,
+            record=record,
+            event_id=event.event_id,
+            reason=event.reason,
+        )
+
+    def _build_new_record(
+        self,
+        *,
+        user_id: str,
+        candidate: MemoryCandidate,
+        request_id: str | None,
+        session_id: str | None,
+        supersedes: list[str] | None = None,
+    ) -> StructuredMemoryRecord:
         now = datetime.now(UTC)
         decay_rate, decay_floor = default_decay_parameters(
             candidate.memory_type,
             candidate.source,
         )
-        record = StructuredMemoryRecord(
+        return StructuredMemoryRecord(
             memory_id=f"mem_{uuid4().hex}",
             user_id=user_id,
             scope="user",
@@ -184,22 +242,121 @@ class MemoryOperationApplier:
             updated_at=now,
             decay_rate=decay_rate,
             decay_floor=decay_floor,
+            supersedes=supersedes or [],
         )
-        self.repository.upsert(record)
-        self._upsert_index(record)
-        event = self._record_event(
+
+    def _apply_discrete_candidate(
+        self,
+        *,
+        user_id: str,
+        candidate: MemoryCandidate,
+        request_id: str | None,
+        session_id: str | None,
+    ) -> MemoryOperationResult | None:
+        candidate_fact = parse_discrete_fact(candidate.structured)
+        if candidate_fact is None:
+            return None
+        same_key_records: list[tuple[StructuredMemoryRecord, object]] = []
+        for record in self.repository.list_by_status(user_id, MemoryStatus.ACTIVE):
+            record_fact = parse_discrete_fact(record.structured)
+            if record_fact is None:
+                continue
+            if record_fact.conflict_key == candidate_fact.conflict_key:
+                same_key_records.append((record, record_fact))
+        if not same_key_records:
+            return None
+
+        comparable_records: list[tuple[StructuredMemoryRecord, object]] = []
+        for record, record_fact in same_key_records:
+            if skips_temporal_conflict(candidate_fact, record_fact):
+                continue
+            comparable_records.append((record, record_fact))
+        if not comparable_records:
+            return self._add(
+                user_id=user_id,
+                candidate=candidate,
+                request_id=request_id,
+                session_id=session_id,
+            )
+
+        candidate_token = discrete_value_token(candidate_fact)
+        conflicting_records: list[StructuredMemoryRecord] = []
+        for record, record_fact in comparable_records:
+            if discrete_value_token(record_fact) == candidate_token:
+                return self._none(
+                    user_id=user_id,
+                    candidate=candidate,
+                    existing=record,
+                    request_id=request_id,
+                    session_id=session_id,
+                    reason="candidate duplicates existing discrete memory",
+                )
+            conflicting_records.append(record)
+
+        if (
+            candidate_fact.certainty == "explicit"
+            and candidate.confidence >= DISCRETE_CONFLICT_MIN_CONFIDENCE
+        ):
+            return self._supersede_discrete_conflicts(
+                user_id=user_id,
+                candidate=candidate,
+                existing_records=conflicting_records,
+                request_id=request_id,
+                session_id=session_id,
+            )
+        return self._none(
             user_id=user_id,
-            operation=MemoryOperationName.ADD,
             candidate=candidate,
-            new_record=record,
+            existing=conflicting_records[0],
             request_id=request_id,
             session_id=session_id,
-            reason="new durable memory",
+            reason="candidate conflicts with active discrete memory but lacks confidence",
+        )
+
+    def _supersede_discrete_conflicts(
+        self,
+        *,
+        user_id: str,
+        candidate: MemoryCandidate,
+        existing_records: list[StructuredMemoryRecord],
+        request_id: str | None,
+        session_id: str | None,
+    ) -> MemoryOperationResult:
+        now = datetime.now(UTC)
+        new_record = self._build_new_record(
+            user_id=user_id,
+            candidate=candidate,
+            request_id=request_id,
+            session_id=session_id,
+            supersedes=[record.memory_id for record in existing_records],
+        )
+        self.repository.upsert(new_record)
+        self._upsert_index(new_record)
+        for record in existing_records:
+            superseded = record.model_copy(
+                update={
+                    "status": MemoryStatus.SUPERSEDED,
+                    "superseded_by": new_record.memory_id,
+                    "updated_at": now,
+                    "version": record.version + 1,
+                }
+            )
+            self.repository.upsert(superseded)
+            self._upsert_index(superseded)
+        event = self._record_event(
+            user_id=user_id,
+            operation=MemoryOperationName.UPDATE,
+            candidate=candidate,
+            old_record=existing_records[0],
+            new_record=new_record,
+            request_id=request_id,
+            session_id=session_id,
+            reason="candidate supersedes conflicting discrete memory",
         )
         return MemoryOperationResult(
-            operation=MemoryOperationName.ADD,
-            memory_id=record.memory_id,
-            record=record,
+            operation=MemoryOperationName.UPDATE,
+            memory_id=new_record.memory_id,
+            record=new_record,
             event_id=event.event_id,
             reason=event.reason,
         )
@@ -615,6 +772,23 @@ def _requested_operation(candidate: MemoryCandidate) -> MemoryOperationName | No
         return MemoryOperationName(operation)
     except ValueError:
         return None
+
+
+def _normalize_candidate_structured(candidate: MemoryCandidate) -> MemoryCandidate:
+    structured = normalize_discrete_structured(candidate.structured)
+    if structured == candidate.structured:
+        return candidate
+    return candidate.model_copy(update={"structured": structured})
+
+
+def _candidate_adds_discrete_structure(
+    existing: StructuredMemoryRecord,
+    candidate: MemoryCandidate,
+) -> bool:
+    return (
+        parse_discrete_fact(candidate.structured) is not None
+        and parse_discrete_fact(existing.structured) is None
+    )
 
 
 def _normalize_memory_text(text: str) -> str:
