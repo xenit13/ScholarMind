@@ -564,6 +564,73 @@ def test_memory_manager_extract_request_memories_uses_structured_operations(tmp_
     assert events[0].operation == "ADD"
 
 
+def test_memory_manager_drops_prohibited_candidate_before_structured_write(tmp_path):
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'memory.db'}",
+        memory_root_dir=str(tmp_path / "memories"),
+        log_dir=str(tmp_path / "logs"),
+        qdrant_location=":memory:",
+        bootstrap_sample_data=False,
+    )
+    init_database(settings)
+    repository = MemoryRepository(build_session_factory(settings))
+    index = _Index()
+    llm = _StructuredOutputLLM(
+        [
+            {
+                "parsed": MemoryCandidateExtractionOutput(
+                    candidates=[
+                        MemoryCandidate(
+                            memory_type="preference",
+                            content=(
+                                "用户的 OpenAI API key 是 "
+                                "sk-abcdefghijklmnopqrstuvwxyz1234567890"
+                            ),
+                            structured={},
+                            keywords=["api key"],
+                            importance=0.8,
+                            confidence=0.9,
+                            source="conversation",
+                            evidence=[{"message_id": "s1-1-0", "role": "human"}],
+                        )
+                    ]
+                ),
+                "raw": _RawResult("", {"input_tokens": 9, "output_tokens": 6, "total_tokens": 15}),
+                "parsing_error": None,
+            }
+        ]
+    )
+    manager = MemoryManager(
+        settings,
+        index,
+        _Embedder(),
+        llm=llm,
+        memory_repository=repository,
+    )
+    round_messages = [
+        {
+            "message": serialize_messages(
+                [HumanMessage(content="请记住我的 OpenAI API key 是 sk-...")]
+            )[0]
+        }
+    ]
+
+    result = manager.extract_request_memories(
+        user_id="u1",
+        request_id="req1",
+        round_messages=round_messages,
+    )
+
+    assert result["success"] is True
+    assert result["written_count"] == 0
+    assert repository.list_active("u1") == []
+    assert index.upserts == []
+    events = repository.list_operation_events("u1")
+    assert events[0].operation == "NONE"
+    assert "admission_drop" in events[0].reason
+    assert "secrets" in events[0].reason
+
+
 def test_memory_manager_structured_path_keeps_explicit_memories_when_llm_fails(tmp_path):
     settings = Settings(
         database_url=f"sqlite:///{tmp_path / 'memory.db'}",

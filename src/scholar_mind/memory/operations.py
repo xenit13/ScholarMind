@@ -176,6 +176,25 @@ class MemoryOperationApplier:
             session_id=session_id,
         )
 
+    def reject_candidate(
+        self,
+        *,
+        user_id: str,
+        candidate: MemoryCandidate,
+        reason: str,
+        request_id: str | None = None,
+        session_id: str | None = None,
+    ) -> MemoryOperationResult:
+        candidate = _normalize_candidate_structured(candidate)
+        return self._none(
+            user_id=user_id,
+            candidate=candidate,
+            existing=None,
+            request_id=request_id,
+            session_id=session_id,
+            reason=reason,
+        )
+
     def _add(
         self,
         *,

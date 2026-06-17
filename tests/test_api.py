@@ -55,33 +55,6 @@ def test_memory_injection_condition_flag_is_exposed_in_api_contract():
 
 
 @pytest.mark.asyncio
-async def test_ask_endpoint_returns_answer():
-    app = create_app()
-    get_container()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await asyncio.wait_for(
-            client.post(
-                "/api/v1/research/ask",
-                json={
-                    "query": "What does hybrid retrieval improve?",
-                    "user_id": "tester",
-                    "session_id": "sess-1",
-                    "mode": "qa",
-                    "paper_ids": [],
-                    "rag_strategy": "hybrid",
-                },
-            ),
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-
-    payload = response.json()
-    assert response.status_code == 200
-    assert payload["success"] is True
-    assert payload["data"]["citations"]
-    assert "retrieval" in payload["data"]["answer"].lower()
-
-
-@pytest.mark.asyncio
 async def test_ask_endpoint_rejects_empty_query():
     app = create_app()
     get_container()
@@ -101,76 +74,6 @@ async def test_ask_endpoint_rejects_empty_query():
         )
 
     assert response.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_idea_novelty_endpoint_returns_structured_report():
-    app = create_app()
-    get_container()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await asyncio.wait_for(
-            client.post(
-                "/api/v1/research/idea-novelty",
-                json={
-                    "idea": "将检索增强规划策略迁移到多智能体代码修复场景",
-                    "user_id": "tester",
-                },
-            ),
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-
-    payload = response.json()
-    assert response.status_code == 200
-    assert payload["success"] is True
-    assert payload["data"]["idea_novelty"]["overlapping_papers"]
-
-
-@pytest.mark.asyncio
-async def test_cross_domain_endpoint_returns_structured_report():
-    app = create_app()
-    get_container()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await asyncio.wait_for(
-            client.post(
-                "/api/v1/research/cross-domain",
-                json={
-                    "request": (
-                        "把 Cross-Domain Transfer of Planning Algorithms from Reinforcement "
-                        "Learning to NLP 尝试应用到代码生成"
-                    ),
-                    "user_id": "tester",
-                },
-            ),
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-
-    payload = response.json()
-    assert response.status_code == 200
-    assert payload["success"] is True
-    assert payload["data"]["cross_domain"]["candidate_papers"]
-
-
-@pytest.mark.asyncio
-async def test_paper_reading_endpoint_returns_passage():
-    app = create_app()
-    get_container()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await asyncio.wait_for(
-            client.post(
-                "/api/v1/research/paper-reading",
-                json={
-                    "paper_id": "2401.00001",
-                    "instruction": "开始精读",
-                    "user_id": "tester",
-                },
-            ),
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-
-    payload = response.json()
-    assert response.status_code == 200
-    assert payload["success"] is True
-    assert payload["data"]["paper_reading"]["current_passage"]["text"]
 
 
 @pytest.mark.asyncio

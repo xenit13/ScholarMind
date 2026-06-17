@@ -18,6 +18,7 @@ from scholar_mind.agents.common import (
 )
 from scholar_mind.config.settings import Settings
 from scholar_mind.eval.context import get_eval_context, record_memory_event
+from scholar_mind.memory.admission import MemoryAdmissionAction, MemoryAdmissionPolicy
 from scholar_mind.memory.compressor import MessageCompressor
 from scholar_mind.memory.decay import MemoryScoreInput, rank_memory_candidates
 from scholar_mind.memory.discrete import format_discrete_memory
@@ -70,6 +71,7 @@ class MemoryManager:
             if memory_repository is not None
             else None
         )
+        self.admission_policy = MemoryAdmissionPolicy()
         self.compressor = MessageCompressor(
             context_window_tokens=settings.message_context_window_tokens,
             compact_threshold_ratio=settings.message_compact_threshold_ratio,
@@ -535,6 +537,16 @@ class MemoryManager:
             return [], usage, False
         written_records: list[StructuredMemoryRecord] = []
         for candidate in candidates:
+            admission = self.admission_policy.evaluate(candidate)
+            if admission.action == MemoryAdmissionAction.DROP:
+                self.operation_applier.reject_candidate(
+                    user_id=user_id,
+                    candidate=candidate,
+                    request_id=request_id,
+                    session_id=session_id,
+                    reason=f"admission_drop:{','.join(admission.matched_rules)}",
+                )
+                continue
             result = self.operation_applier.apply_candidate(
                 user_id=user_id,
                 candidate=candidate,
