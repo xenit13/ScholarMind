@@ -8,6 +8,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from scholar_mind.agents.common import empty_usage, invoke_structured_output
 from scholar_mind.models.domain import MemoryCandidate
 
 
@@ -22,8 +23,47 @@ class MemoryAdmissionDecision(BaseModel):
     matched_rules: list[str] = Field(default_factory=list)
 
 
+class MemoryAdmissionModelOutput(BaseModel):
+    action: MemoryAdmissionAction
+    reason: str
+    matched_rules: list[str] = Field(default_factory=list)
+
+
 class MemoryAdmissionPolicy:
-    def evaluate(self, candidate: MemoryCandidate) -> MemoryAdmissionDecision:
+    def evaluate(
+        self, candidate: MemoryCandidate, *, llm=None
+    ) -> tuple[MemoryAdmissionDecision, dict[str, float]]:
+        if llm is not None:
+            decision, usage = self._evaluate_with_model(candidate, llm)
+            if decision is not None:
+                return decision, usage
+            return self._evaluate_with_rules(candidate), usage
+        return self._evaluate_with_rules(candidate), empty_usage()
+
+    def _evaluate_with_model(
+        self, candidate: MemoryCandidate, llm
+    ) -> tuple[MemoryAdmissionDecision | None, dict[str, float]]:
+        output, usage = invoke_structured_output(
+            llm,
+            _build_model_admission_prompt(candidate),
+            MemoryAdmissionModelOutput,
+        )
+        if output is None:
+            return None, usage
+        try:
+            parsed = MemoryAdmissionModelOutput.model_validate(output)
+        except Exception:
+            return None, usage
+        return (
+            MemoryAdmissionDecision(
+                action=parsed.action,
+                reason=parsed.reason,
+                matched_rules=parsed.matched_rules,
+            ),
+            usage,
+        )
+
+    def _evaluate_with_rules(self, candidate: MemoryCandidate) -> MemoryAdmissionDecision:
         payload = _candidate_payload_text(candidate)
         matched_rules = _match_prohibited_rules(payload)
         if matched_rules:
@@ -33,6 +73,30 @@ class MemoryAdmissionPolicy:
                 matched_rules=matched_rules,
             )
         return MemoryAdmissionDecision(action=MemoryAdmissionAction.WRITE, reason="allowed")
+
+
+def _build_model_admission_prompt(candidate: MemoryCandidate) -> str:
+    return (
+        "# Role\n"
+        "You are the memory admission gate for ScholarMind.\n\n"
+        "# Goal\n"
+        "Decide whether this extracted memory candidate may be persisted.\n\n"
+        "# Actions\n"
+        "- WRITE: safe and useful durable memory for future interactions.\n"
+        "- DROP: contains prohibited content or should not be stored.\n\n"
+        "# Drop if the candidate contains\n"
+        "- secrets, credentials, tokens, passwords, private keys, or tool credentials\n"
+        "- payment data or bank/card details\n"
+        "- government IDs or exact identity documents\n"
+        "- precise contact details or physical addresses\n"
+        "- medical, health, legal, financial, minor, or third-party private information\n"
+        "- model/tool traces, system/developer prompts, request IDs, internal URLs, "
+        "or raw retrieval text\n\n"
+        "# Output\n"
+        "Return valid JSON only with fields: action, reason, matched_rules.\n"
+        "Use action WRITE or DROP. matched_rules should be an empty array for WRITE.\n\n"
+        f"Candidate: {_candidate_payload_text(candidate)}"
+    )
 
 
 def _candidate_payload_text(candidate: MemoryCandidate) -> str:

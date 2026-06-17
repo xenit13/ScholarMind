@@ -631,6 +631,79 @@ def test_memory_manager_drops_prohibited_candidate_before_structured_write(tmp_p
     assert "secrets" in events[0].reason
 
 
+def test_memory_manager_uses_model_admission_before_structured_write(tmp_path):
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'memory.db'}",
+        memory_root_dir=str(tmp_path / "memories"),
+        log_dir=str(tmp_path / "logs"),
+        qdrant_location=":memory:",
+        bootstrap_sample_data=False,
+    )
+    init_database(settings)
+    repository = MemoryRepository(build_session_factory(settings))
+    index = _Index()
+    llm = _StructuredOutputLLM(
+        [
+            {
+                "parsed": MemoryCandidateExtractionOutput(
+                    candidates=[
+                        MemoryCandidate(
+                            memory_type="preference",
+                            content="用户偏好中文、结构化回答。",
+                            structured={},
+                            keywords=["中文", "结构化"],
+                            importance=0.8,
+                            confidence=0.9,
+                            source="conversation",
+                            evidence=[{"message_id": "s1-1-0", "role": "human"}],
+                        )
+                    ]
+                ),
+                "raw": _RawResult("", {"input_tokens": 9, "output_tokens": 6, "total_tokens": 15}),
+                "parsing_error": None,
+            },
+            {
+                "parsed": {
+                    "action": "DROP",
+                    "reason": "model rejected this memory",
+                    "matched_rules": ["model_policy"],
+                },
+                "raw": _RawResult("", {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}),
+                "parsing_error": None,
+            },
+        ]
+    )
+    manager = MemoryManager(
+        settings,
+        index,
+        _Embedder(),
+        llm=llm,
+        memory_repository=repository,
+    )
+    round_messages = [
+        {
+            "message": serialize_messages(
+                [HumanMessage(content="请记住我偏好中文、结构化回答。")]
+            )[0]
+        }
+    ]
+
+    result = manager.extract_request_memories(
+        user_id="u1",
+        request_id="req1",
+        round_messages=round_messages,
+    )
+
+    assert result["success"] is True
+    assert result["written_count"] == 0
+    assert result["usage"]["total_tokens"] == 20
+    assert repository.list_active("u1") == []
+    assert index.upserts == []
+    events = repository.list_operation_events("u1")
+    assert events[0].operation == "NONE"
+    assert events[0].reason == "admission_drop:model_policy"
+
+
 def test_memory_manager_structured_path_keeps_explicit_memories_when_llm_fails(tmp_path):
     settings = Settings(
         database_url=f"sqlite:///{tmp_path / 'memory.db'}",

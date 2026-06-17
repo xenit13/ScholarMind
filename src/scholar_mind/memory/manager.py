@@ -537,7 +537,8 @@ class MemoryManager:
             return [], usage, False
         written_records: list[StructuredMemoryRecord] = []
         for candidate in candidates:
-            admission = self.admission_policy.evaluate(candidate)
+            admission, admission_usage = self.admission_policy.evaluate(candidate, llm=self.llm)
+            usage = merge_usage(usage, admission_usage)
             if admission.action == MemoryAdmissionAction.DROP:
                 self.operation_applier.reject_candidate(
                     user_id=user_id,
