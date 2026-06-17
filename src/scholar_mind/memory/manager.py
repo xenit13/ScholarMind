@@ -24,6 +24,7 @@ from scholar_mind.memory.decay import MemoryScoreInput, rank_memory_candidates
 from scholar_mind.memory.discrete import format_discrete_memory
 from scholar_mind.memory.extraction import extract_memory_candidates_from_round
 from scholar_mind.memory.operations import MemoryOperationApplier
+from scholar_mind.memory.pending_buffer import PendingContextPayload, PendingConversationBuffer
 from scholar_mind.memory.repository import MemoryRepository
 from scholar_mind.models.domain import (
     MemoryExtractionOutput,
@@ -72,6 +73,7 @@ class MemoryManager:
             else None
         )
         self.admission_policy = MemoryAdmissionPolicy()
+        self.pending_buffer = PendingConversationBuffer()
         self.compressor = MessageCompressor(
             context_window_tokens=settings.message_context_window_tokens,
             compact_threshold_ratio=settings.message_compact_threshold_ratio,
@@ -83,7 +85,52 @@ class MemoryManager:
         self.memory_root.mkdir(parents=True, exist_ok=True)
 
     async def get_context(self, user_id: str, current_query: str) -> tuple[str, int]:
-        return self.get_context_sync(user_id=user_id, current_query=current_query)
+        payload = self.get_context_payload_sync(
+            user_id=user_id,
+            session_id=None,
+            current_query=current_query,
+        )
+        return payload.context, payload.hit_count
+
+    async def get_context_payload(
+        self,
+        *,
+        user_id: str,
+        current_query: str,
+        session_id: str | None = None,
+    ) -> PendingContextPayload:
+        return self.get_context_payload_sync(
+            user_id=user_id,
+            session_id=session_id,
+            current_query=current_query,
+        )
+
+    def get_context_payload_sync(
+        self,
+        *,
+        user_id: str,
+        session_id: str | None,
+        current_query: str,
+    ) -> PendingContextPayload:
+        persisted_context, persisted_hits = self.get_context_sync(
+            user_id=user_id,
+            current_query=current_query,
+        )
+        pending = self.pending_buffer.get_context_payload(
+            user_id=user_id,
+            session_id=session_id,
+        )
+        sections = []
+        if persisted_context:
+            sections.append(f"Persisted memory:\n{persisted_context}")
+        if pending.context:
+            sections.append(pending.context)
+        return PendingContextPayload(
+            context="\n\n".join(sections),
+            hit_count=persisted_hits + pending.hit_count,
+            notices=pending.notices,
+            token_estimate=pending.token_estimate,
+        )
 
     def get_context_sync(self, user_id: str, current_query: str) -> tuple[str, int]:
         embedding_started = perf_counter()
@@ -476,13 +523,14 @@ class MemoryManager:
         explicit_memories: list[str] | None = None,
     ) -> dict[str, object]:
         written_records: list[MemoryRecord | StructuredMemoryRecord] = []
+        session_id = _round_session_id(round_messages)
         if self.operation_applier is not None:
             written_records, usage, success = self._extract_and_apply_structured_memories(
                 user_id=user_id,
                 round_messages=round_messages,
                 explicit_memories=explicit_memories,
                 request_id=request_id,
-                session_id=_round_session_id(round_messages),
+                session_id=session_id,
             )
         else:
             memories, usage, success = self._extract_memories_from_round(
@@ -494,6 +542,13 @@ class MemoryManager:
                     record = self._save_sync(user_id, memory)
                     if record is not None:
                         written_records.append(record)
+
+        if success:
+            self.pending_buffer.remove_round(
+                user_id=user_id,
+                session_id=session_id,
+                request_id=request_id,
+            )
 
         if self.memory_eval_v2_repository is not None:
             self.memory_eval_v2_repository.update_memory_extraction_result(
@@ -540,6 +595,15 @@ class MemoryManager:
             admission, admission_usage = self.admission_policy.evaluate(candidate, llm=self.llm)
             usage = merge_usage(usage, admission_usage)
             if admission.action == MemoryAdmissionAction.DROP:
+                if request_id is not None:
+                    self.pending_buffer.mark_rejected(
+                        user_id=user_id,
+                        session_id=session_id,
+                        request_id=request_id,
+                        round_index=_round_index(round_messages),
+                        user_question=_latest_human_question(round_messages),
+                        reasons=admission.matched_rules,
+                    )
                 self.operation_applier.reject_candidate(
                     user_id=user_id,
                     candidate=candidate,
@@ -896,6 +960,30 @@ def _round_session_id(round_messages: list[dict]) -> str | None:
         if isinstance(item, dict) and item.get("thread_id"):
             return str(item["thread_id"])
     return None
+
+
+def _round_index(round_messages: list[dict]) -> int | None:
+    for item in round_messages:
+        if not isinstance(item, dict):
+            continue
+        raw_round = item.get("round_index")
+        if raw_round is None:
+            continue
+        try:
+            return int(raw_round)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _latest_human_question(round_messages: list[dict]) -> str:
+    messages = deserialize_messages(
+        [item["message"] for item in round_messages if isinstance(item, dict) and "message" in item]
+    )
+    for message in reversed(messages):
+        if getattr(message, "type", "") == "human":
+            return str(message.content).strip()
+    return ""
 
 
 def _normalize_memory_text(text: str) -> str:

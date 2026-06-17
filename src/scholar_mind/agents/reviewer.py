@@ -41,6 +41,20 @@ def _normalize_review_output(candidate: str | None, fallback: str) -> str:
     return text
 
 
+def _append_memory_notices(final_answer: str, notices: list[str]) -> str:
+    clean_notices = [
+        notice.strip()
+        for notice in notices
+        if isinstance(notice, str) and notice.strip()
+    ]
+    if not clean_notices:
+        return final_answer
+    suffix = "\n".join(f"另外，{notice}" for notice in clean_notices)
+    if not final_answer.strip():
+        return suffix
+    return f"{final_answer.rstrip()}\n\n{suffix}"
+
+
 def _review_context_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
     return [
         message
@@ -67,6 +81,10 @@ def make_reviewer_primary_node(llm, prompt_catalog):
                 output_value(state, "report_payload", {})
                 .get("explanation", {})
                 .get("plain_language", output_value(state, "draft", ""))
+            )
+            final_answer = _append_memory_notices(
+                final_answer,
+                memory_value(state, "notices", []) or [],
             )
             review_score = 1.0 if final_answer else 0.0
             duration = int((perf_counter() - started) * 1000)
@@ -123,6 +141,10 @@ def make_reviewer_primary_node(llm, prompt_catalog):
             structured.final_answer if structured else None,
             base_answer,
         )
+        final_answer = _append_memory_notices(
+            final_answer,
+            memory_value(state, "notices", []) or [],
+        )
         if structured:
             review_score = round(max(0.0, min(float(structured.review_score), 1.0)), 4)
         else:
@@ -161,6 +183,10 @@ def make_reviewer_fallback_node(prompt_catalog):
                 .get("explanation", {})
                 .get("plain_language", output_value(state, "draft", ""))
             )
+            final_answer = _append_memory_notices(
+                final_answer,
+                memory_value(state, "notices", []) or [],
+            )
             review_score = 1.0 if final_answer else 0.0
             duration = int((perf_counter() - started) * 1000)
             return {
@@ -191,14 +217,18 @@ def make_reviewer_fallback_node(prompt_catalog):
             )
         ]
         base_answer = output_value(state, "draft", "")
+        final_answer = _append_memory_notices(
+            base_answer,
+            memory_value(state, "notices", []) or [],
+        )
         citation_coverage = min(len(citations), FINAL_CITATION_TOP_K) / FINAL_CITATION_TOP_K
-        answer_signal = min(len(base_answer.split()), 80) / 80 if base_answer else 0.0
+        answer_signal = min(len(final_answer.split()), 80) / 80 if final_answer else 0.0
         review_score = round((citation_coverage * 0.6) + (answer_signal * 0.4), 4)
         duration = int((perf_counter() - started) * 1000)
         return {
             "messages": [AIMessage(content="Reviewer finalized the response")],
             "output": {
-                "final_answer": base_answer,
+                "final_answer": final_answer,
                 "review_score": review_score,
                 "citations": citations,
             },

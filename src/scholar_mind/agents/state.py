@@ -54,6 +54,7 @@ class MemoryState(TypedDict):
     explicit_candidates: NotRequired[list[str]]
     context: NotRequired[str]
     hit_count: NotRequired[int]
+    notices: NotRequired[list[str]]
 
 
 class RetrievalState(TypedDict):
@@ -126,7 +127,11 @@ def planning_value(state: dict[str, Any], key: str, default: Any = None) -> Any:
 
 
 def memory_value(state: dict[str, Any], key: str, default: Any = None) -> Any:
-    aliases = {"context": "memory_context", "hit_count": "memory_hit_count"}
+    aliases = {
+        "context": "memory_context",
+        "hit_count": "memory_hit_count",
+        "notices": "memory_notices",
+    }
     return state.get("memory", {}).get(key, state.get(aliases.get(key, key), default))
 
 
@@ -206,6 +211,7 @@ def flatten_graph_state(state: dict[str, Any]) -> dict[str, Any]:
                 "explicit_memory_candidates": memory.get("explicit_candidates", []),
                 "memory_context": memory.get("context", ""),
                 "memory_hit_count": memory.get("hit_count", 0),
+                "memory_notices": memory.get("notices", []),
             }
         )
     if retrieval:

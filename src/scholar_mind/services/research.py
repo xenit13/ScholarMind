@@ -669,16 +669,28 @@ class ResearchService:
             prior_human_rounds = sum(
                 1 for message in previous_messages if getattr(message, "type", "") == "human"
             )
+            round_index = prior_human_rounds + 1
+            pending_buffer = getattr(self.memory_manager, "pending_buffer", None)
+            if pending_buffer is not None:
+                pending_buffer.add_round(
+                    user_id=user_id,
+                    session_id=session_id,
+                    request_id=request_id,
+                    round_index=round_index,
+                    messages=round_messages,
+                )
             self.memory_manager.log_round(
                 user_id=user_id,
                 session_id=session_id,
-                round_index=prior_human_rounds + 1,
+                round_index=round_index,
                 messages=round_messages,
                 explicit_memories=stored.get("explicit_memory_candidates", []),
             )
             self._dispatch_request_memory_extraction(
                 user_id=user_id,
+                session_id=session_id,
                 request_id=request_id,
+                round_index=round_index,
                 round_messages=round_messages,
                 explicit_memories=stored.get("explicit_memory_candidates", []),
             )
@@ -692,11 +704,20 @@ class ResearchService:
         request_id: str,
         round_messages: list,
         explicit_memories: list[str] | None,
+        session_id: str | None = None,
+        round_index: int | None = None,
     ) -> None:
         if self.memory_eval_v2_repository is None:
             return
 
-        payload = [{"message": item} for item in serialize_messages(round_messages)]
+        payload = []
+        for item in serialize_messages(round_messages):
+            entry = {"message": item}
+            if session_id is not None:
+                entry["thread_id"] = session_id
+            if round_index is not None:
+                entry["round_index"] = round_index
+            payload.append(entry)
         started = perf_counter()
         dispatch_success = False
 

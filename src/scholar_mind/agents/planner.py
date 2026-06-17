@@ -50,7 +50,10 @@ _GENERAL_MEMORY_INTENT_PATTERNS = [
         flags=re.IGNORECASE,
     ),
     re.compile(
-        r"(?:remember|based on|according to).*(?:my preferences|my habits|my background|my research focus|my goals?)",
+        (
+            r"(?:remember|based on|according to).*(?:my preferences|my habits|"
+            r"my background|my research focus|my goals?)"
+        ),
         flags=re.IGNORECASE,
     ),
 ]
@@ -84,6 +87,7 @@ def make_planner_primary_node(llm, memory_manager, prompt_catalog, paper_reposit
         query = request_value(state, "query", "")
         explicit_memory_candidates = _extract_explicit_memory_candidates(query)
         memory_context, hits = "", 0
+        memory_notices: list[str] = []
         existing_payload = request_value(state, "payload")
         hint = request_value(state, "query_type_hint")
         structured = None
@@ -96,7 +100,9 @@ def make_planner_primary_node(llm, memory_manager, prompt_catalog, paper_reposit
             target_domains = []
         else:
             if llm is None:
-                raise RuntimeError("Planner primary requires an LLM when no fixed hint is available")
+                raise RuntimeError(
+                    "Planner primary requires an LLM when no fixed hint is available"
+                )
             prompt = (
                 f"{planner_prompt}\n\n"
                 f"Query: {query}\n"
@@ -139,10 +145,21 @@ def make_planner_primary_node(llm, memory_manager, prompt_catalog, paper_reposit
                 (existing_payload or {}).get("conditional_memory_injection", False)
             ),
         ):
-            memory_context, hits = await memory_manager.get_context(
-                user_id=request_value(state, "user_id", ""),
-                current_query=query,
-            )
+            context_payload = getattr(memory_manager, "get_context_payload", None)
+            if callable(context_payload):
+                payload = await context_payload(
+                    user_id=request_value(state, "user_id", ""),
+                    session_id=request_value(state, "session_id", None),
+                    current_query=query,
+                )
+                memory_context = payload.context
+                hits = payload.hit_count
+                memory_notices = list(getattr(payload, "notices", []))
+            else:
+                memory_context, hits = await memory_manager.get_context(
+                    user_id=request_value(state, "user_id", ""),
+                    current_query=query,
+                )
         request_payload = _build_request_payload(
             existing_payload,
             query,
@@ -171,6 +188,7 @@ def make_planner_primary_node(llm, memory_manager, prompt_catalog, paper_reposit
                 "explicit_candidates": explicit_memory_candidates,
                 "context": memory_context,
                 "hit_count": hits,
+                "notices": memory_notices,
             },
             "cross_domain": {"intent": cross_domain_intent},
             "telemetry": {
@@ -193,6 +211,7 @@ def make_planner_fallback_node(memory_manager, paper_repository=None):
         query = request_value(state, "query", "")
         explicit_memory_candidates = _extract_explicit_memory_candidates(query)
         memory_context, hits = "", 0
+        memory_notices: list[str] = []
         existing_payload = request_value(state, "payload")
         hint = request_value(state, "query_type_hint")
         query_type = QueryType(hint) if hint else planner_fallback(query, hint)
@@ -215,10 +234,21 @@ def make_planner_fallback_node(memory_manager, paper_repository=None):
                 (existing_payload or {}).get("conditional_memory_injection", False)
             ),
         ):
-            memory_context, hits = await memory_manager.get_context(
-                user_id=request_value(state, "user_id", ""),
-                current_query=query,
-            )
+            context_payload = getattr(memory_manager, "get_context_payload", None)
+            if callable(context_payload):
+                payload = await context_payload(
+                    user_id=request_value(state, "user_id", ""),
+                    session_id=request_value(state, "session_id", None),
+                    current_query=query,
+                )
+                memory_context = payload.context
+                hits = payload.hit_count
+                memory_notices = list(getattr(payload, "notices", []))
+            else:
+                memory_context, hits = await memory_manager.get_context(
+                    user_id=request_value(state, "user_id", ""),
+                    current_query=query,
+                )
         request_payload = _build_request_payload(
             existing_payload,
             query,
@@ -248,6 +278,7 @@ def make_planner_fallback_node(memory_manager, paper_repository=None):
                 "explicit_candidates": explicit_memory_candidates,
                 "context": memory_context,
                 "hit_count": hits,
+                "notices": memory_notices,
             },
             "cross_domain": {"intent": cross_domain_intent},
             "telemetry": {"agent_trace": [{"agent": "planner", "duration_ms": duration}]},
@@ -463,10 +494,23 @@ def _merge_paper_reading_payload(
 
     _set_payload_string(payload, "paper_id", paper_id)
     _set_payload_string(payload, "paper_title", paper_title)
-    _set_payload_string(payload, "section", _normalize_section(_structured_value(structured, "section")))
-    _set_payload_int(payload, "paragraph_index", _structured_value(structured, "paragraph_index"), minimum=0)
+    _set_payload_string(
+        payload,
+        "section",
+        _normalize_section(_structured_value(structured, "section")),
+    )
+    _set_payload_int(
+        payload,
+        "paragraph_index",
+        _structured_value(structured, "paragraph_index"),
+        minimum=0,
+    )
     _set_payload_string(payload, "depth", _normalize_depth(_structured_value(structured, "depth")))
-    _set_payload_string(payload, "instruction", _structured_value(structured, "instruction") or query)
+    _set_payload_string(
+        payload,
+        "instruction",
+        _structured_value(structured, "instruction") or query,
+    )
 
 
 def _merge_study_plan_payload(
@@ -475,8 +519,16 @@ def _merge_study_plan_payload(
     arxiv_ids: list[str],
 ) -> None:
     _set_payload_string(payload, "goal", _structured_value(structured, "goal"))
-    _set_payload_string(payload, "current_progress", _structured_value(structured, "current_progress"))
-    _set_payload_list(payload, "read_papers", _structured_value(structured, "read_papers") or arxiv_ids)
+    _set_payload_string(
+        payload,
+        "current_progress",
+        _structured_value(structured, "current_progress"),
+    )
+    _set_payload_list(
+        payload,
+        "read_papers",
+        _structured_value(structured, "read_papers") or arxiv_ids,
+    )
     _set_payload_list(payload, "known_topics", _structured_value(structured, "known_topics"))
     _set_payload_int(payload, "timeline_weeks", _structured_value(structured, "timeline_weeks"))
     _set_payload_int(payload, "weekly_hours", _structured_value(structured, "weekly_hours"))
