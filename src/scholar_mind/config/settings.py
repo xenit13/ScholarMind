@@ -117,6 +117,10 @@ class Settings(BaseSettings):
     memory_explicit_keep_importance_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     conditional_memory_injection: bool = False
     memory_structured_storage_enabled: bool = True
+    memory_consistency_audit_enabled: bool = True
+    memory_consistency_audit_auto_fix_enabled: bool = True
+    memory_consistency_audit_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
+    memory_consistency_audit_batch_size: int = Field(default=500, ge=1)
 
     papers_seed_path: str = "data/processed/sample_papers.json"
     log_dir: str = "data/message_logs"
@@ -197,6 +201,21 @@ def _memory_yaml_payload() -> dict[str, Any]:
                 target: decay[source]
                 for source, target in decay_field_map.items()
                 if source in decay
+            }
+        )
+    consistency_audit = memory.get("consistency_audit", {})
+    if isinstance(consistency_audit, dict):
+        consistency_audit_field_map = {
+            "enabled": "memory_consistency_audit_enabled",
+            "auto_fix_enabled": "memory_consistency_audit_auto_fix_enabled",
+            "min_confidence": "memory_consistency_audit_min_confidence",
+            "batch_size": "memory_consistency_audit_batch_size",
+        }
+        mapped.update(
+            {
+                target: consistency_audit[source]
+                for source, target in consistency_audit_field_map.items()
+                if source in consistency_audit
             }
         )
     return mapped

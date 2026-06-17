@@ -246,5 +246,30 @@ def eval_memory_library_report(report_id: str = typer.Option(..., "--report-id")
     dump(container.memory_eval_v2_service.get_library_audit_report(report_id))
 
 
+@eval_app.command("memory-consistency-audit")
+def eval_memory_consistency_audit(
+    user_id: str | None = typer.Option(None, "--user-id"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+):
+    container = get_container()
+    auditor = getattr(container, "memory_consistency_auditor", None)
+    if auditor is None:
+        dump(
+            {
+                "run_id": "",
+                "checked_count": 0,
+                "inconsistent_count": 0,
+                "repaired_count": 0,
+                "would_repair_count": 0,
+                "skipped_count": 0,
+                "repaired_memory_ids": [],
+                "skipped": [],
+                "status": "disabled",
+            }
+        )
+        return
+    dump(auditor.run(user_id=user_id, dry_run=dry_run))
+
+
 if __name__ == "__main__":
     cli_app()

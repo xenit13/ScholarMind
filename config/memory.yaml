@@ -9,6 +9,11 @@ memory:
   async_extraction: true
   root_dir: data/memory
   log_dir: data/message_logs
+  consistency_audit:
+    enabled: true
+    auto_fix_enabled: true
+    min_confidence: 0.85
+    batch_size: 500
   decay:
     enabled: true
     archive_threshold: 0.01

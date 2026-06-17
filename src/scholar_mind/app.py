@@ -14,6 +14,7 @@ from scholar_mind.config.settings import Settings, get_settings
 from scholar_mind.db.session import build_session_factory, init_database
 from scholar_mind.eval.datasets import EvalDatasetBuilder
 from scholar_mind.eval.rag_eval_service import RagEvalService
+from scholar_mind.memory.consistency_audit import MemoryConsistencyAuditor
 from scholar_mind.memory.manager import MemoryManager
 from scholar_mind.memory.repository import MemoryRepository
 from scholar_mind.models.factory import build_chat_models, build_embedding_service, build_reranker
@@ -50,6 +51,7 @@ class AppContainer:
     index: QdrantIndex
     rag_engine: RAGEngine
     memory_manager: MemoryManager
+    memory_consistency_auditor: MemoryConsistencyAuditor | None
     memory_management_service: MemoryManagementService | None
     orchestrator: AgentOrchestrator
     research_service: ResearchService
@@ -119,6 +121,20 @@ def build_container(settings: Settings | None = None) -> AppContainer:
         if memory_repository is not None
         else None
     )
+    memory_consistency_auditor = (
+        MemoryConsistencyAuditor(
+            repository=memory_repository,
+            index=index,
+            embedder=embedder,
+            llm=chat_models.get("light") or chat_models.get("reasoning"),
+            min_confidence=app_settings.memory_consistency_audit_min_confidence,
+            auto_fix=app_settings.memory_consistency_audit_auto_fix_enabled,
+            batch_size=app_settings.memory_consistency_audit_batch_size,
+        )
+        if memory_repository is not None
+        and app_settings.memory_consistency_audit_enabled
+        else None
+    )
     orchestrator = AgentOrchestrator(
         paper_repository,
         rag_engine,
@@ -162,6 +178,7 @@ def build_container(settings: Settings | None = None) -> AppContainer:
         index=index,
         rag_engine=rag_engine,
         memory_manager=memory_manager,
+        memory_consistency_auditor=memory_consistency_auditor,
         memory_management_service=memory_management_service,
         orchestrator=orchestrator,
         research_service=research_service,
