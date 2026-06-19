@@ -1,8 +1,8 @@
-# Memory Eval LoCoMo Adaptation Implementation Plan
+# Memory Eval Official LoCoMo Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn ScholarMind into a memory-system-only branch named `memory_eval`, with prompts and evaluation surfaces prepared for LoCoMo-style long conversational memory tests.
+**Goal:** Turn ScholarMind into a memory-system-only branch named `memory_eval`, with prompts and evaluation surfaces prepared to run the official LoCoMo benchmark. Business-specific LoCoMo-style datasets, question generation, and extra adaptation layers are out of scope.
 
 **Architecture:** Keep memory extraction, retrieval, structured storage, decay, consistency audit, memory evaluation, database/session infrastructure, model providers, embeddings, and vector index adapters. Remove paper/RAG/research-assistant business features from public CLI/API/container wiring, then delete orphaned modules once memory tests prove the retained surface is independent.
 
@@ -31,7 +31,7 @@ This branch removes or hides paper/research business capabilities:
 - research/paper prompts
 - tests that only validate removed business behavior
 
-LoCoMo support in this plan is preparatory: prompts and interfaces should be domain-neutral and provenance-friendly, but official LoCoMo runners can be added in a later branch or later phase after the memory-only base is stable.
+LoCoMo support in this plan targets the official benchmark contract: official conversations are ingested as long-term memory inputs, official benchmark questions are asked unchanged, and evaluation uses official answers/evidence where available. This branch must not add a separate business dataset format or generate business-specific benchmark questions.
 
 ## Phase 0: Branch and Plan Commit
 
@@ -161,24 +161,25 @@ git commit -m "refactor: remove research and paper business modules"
 
 Expected: third commit on `memory_eval`.
 
-## Phase 3: Adapt Prompts and Settings for LoCoMo-Style Memory
+## Phase 3: Adapt Prompts and Settings for Official LoCoMo
 
 **Files:**
 - Create: `config/prompts/memory_extraction.txt`
 - Create: `config/prompts/memory_answering.txt`
+- Create: official LoCoMo runner files as needed
 - Modify: `src/scholar_mind/memory/extraction.py`
 - Modify: `src/scholar_mind/config/settings.py`
 - Modify: `config/default.yaml`
 - Modify: `config/memory.yaml`
 - Delete: paper/research prompt files under `config/prompts/`
 
-- [ ] **Step 1: Write prompt/settings tests**
+- [ ] **Step 1: Write official LoCoMo surface tests**
 
-Add tests that check the configured prompt directory only contains memory prompts and that memory extraction prompts mention long conversation provenance, temporal validity, evidence/source ids, and stale/conflicting facts.
+Add tests that check the configured prompt directory only contains memory prompts, memory extraction prompts mention long conversation provenance, temporal validity, evidence/source ids, and stale/conflicting facts, and the LoCoMo entrypoint expects official conversation/question records rather than business-specific generated questions.
 
 Run: `uv run pytest tests/test_memory_eval_surface.py tests/test_memory_extraction.py -q`
 
-Expected before implementation: fail because paper/research prompts remain and extraction prompt is embedded in code.
+Expected before implementation: fail because paper/research prompts remain, extraction prompt is embedded in code, or no official LoCoMo entrypoint exists.
 
 - [ ] **Step 2: Externalize memory extraction prompt**
 
@@ -188,7 +189,15 @@ Run: `uv run pytest tests/test_memory_extraction.py -q`
 
 Expected after implementation: pass.
 
-- [ ] **Step 3: Delete business prompts**
+- [ ] **Step 3: Add official LoCoMo ingest/query runner**
+
+Add the minimal runner needed to load official LoCoMo conversations and questions, feed conversations into the memory system, answer official questions unchanged, and export predictions/trace data for official scoring. Do not add business-specific question generation or custom business labels.
+
+Run: `uv run pytest tests/test_memory_eval_surface.py tests/test_memory_eval_v2.py -q`
+
+Expected after implementation: pass.
+
+- [ ] **Step 4: Delete business prompts**
 
 Remove planner, researcher, reviewer, writer, trend, hypothesis, crossdomain, paper reader, and paper reading planner prompts. Keep only memory prompts.
 
@@ -196,13 +205,13 @@ Run: `uv run pytest tests/test_memory_eval_surface.py -q`
 
 Expected after implementation: pass.
 
-- [ ] **Step 4: Commit Phase 3**
+- [ ] **Step 5: Commit Phase 3**
 
 Run:
 
 ```bash
 git add -A config src tests
-git commit -m "feat: adapt prompts for long-conversation memory eval"
+git commit -m "feat: support official locomo memory eval"
 ```
 
 Expected: fourth commit on `memory_eval`.
