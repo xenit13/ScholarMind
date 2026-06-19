@@ -292,7 +292,10 @@ class MemoryEvalV2Repository:
                         memory_extraction_precision=run.get("memory_extraction_precision"),
                         memory_extraction_latency_ms=run.get("memory_extraction_latency_ms"),
                         memory_extraction_tokens=run.get("memory_extraction_tokens"),
-                        score_breakdown_json=json.dumps(run.get("score_breakdown", {}), ensure_ascii=False),
+                        score_breakdown_json=json.dumps(
+                            run.get("score_breakdown", {}),
+                            ensure_ascii=False,
+                        ),
                         created_at=_utcnow(),
                     )
                 )
@@ -421,7 +424,9 @@ class MemoryEvalV2Repository:
                 "run": self._run_to_dict(run) if run else None,
                 "batch": self._batch_to_dict(batch) if batch else None,
                 "retrieval_event": self._retrieval_event_to_dict(retrieval) if retrieval else None,
-                "extraction_event": self._extraction_event_to_dict(extraction) if extraction else None,
+                "extraction_event": (
+                    self._extraction_event_to_dict(extraction) if extraction else None
+                ),
             }
 
     def get_batch_report_by_batch_id(self, batch_id: str) -> dict | None:
@@ -1054,7 +1059,10 @@ class MemoryEvalServiceV2:
         }
         overlap = sorted(duplicate_norm & conflict_norm)
         if overlap:
-            raise ValueError(f"PAIR_MARKED_AS_BOTH_DUPLICATE_AND_CONFLICT: {overlap[0][0]} {overlap[0][1]}")
+            raise ValueError(
+                "PAIR_MARKED_AS_BOTH_DUPLICATE_AND_CONFLICT: "
+                f"{overlap[0][0]} {overlap[0][1]}"
+            )
         return {
             "duplicate_pairs": duplicate_pairs,
             "conflict_pairs": conflict_pairs,
@@ -1086,7 +1094,10 @@ class MemoryEvalServiceV2:
                 raise ValueError(f"UNKNOWN_MEMORY_ID: {memory_id_2}")
             normalized = tuple(sorted((memory_id_1, memory_id_2)))
             if normalized in seen:
-                raise ValueError(f"DUPLICATE_{field_name.upper()}_PAIR: {normalized[0]} {normalized[1]}")
+                raise ValueError(
+                    f"DUPLICATE_{field_name.upper()}_PAIR: "
+                    f"{normalized[0]} {normalized[1]}"
+                )
             seen.add(normalized)
             validated.append(
                 {

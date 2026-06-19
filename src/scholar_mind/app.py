@@ -9,8 +9,6 @@ from scholar_mind.memory.consistency_audit import MemoryConsistencyAuditor
 from scholar_mind.memory.manager import MemoryManager
 from scholar_mind.memory.repository import MemoryRepository
 from scholar_mind.models.factory import build_chat_models, build_embedding_service
-from scholar_mind.rag.embeddings import EmbeddingService
-from scholar_mind.rag.index import QdrantIndex
 from scholar_mind.services.memory_eval_v2 import MemoryEvalServiceV2, MemoryEvalV2Repository
 from scholar_mind.services.memory_management import MemoryManagementService
 from scholar_mind.services.repositories import (
@@ -18,6 +16,8 @@ from scholar_mind.services.repositories import (
     OnlineEvalRepository,
     SessionRepository,
 )
+from scholar_mind.vector.embeddings import EmbeddingService
+from scholar_mind.vector.index import QdrantIndex
 
 
 @dataclass

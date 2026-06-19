@@ -52,7 +52,6 @@ def _settings(tmp_path):
         memory_root_dir=str(tmp_path / "memories"),
         log_dir=str(tmp_path / "logs"),
         qdrant_location=":memory:",
-        bootstrap_sample_data=False,
     )
 
 

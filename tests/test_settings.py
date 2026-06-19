@@ -6,7 +6,6 @@ import pytest
 from pydantic import ValidationError
 
 from scholar_mind.config import settings as config_settings
-from scholar_mind.models.domain import IdeaNoveltyRequest
 
 
 def test_zai_env_aliases_are_loaded(monkeypatch, tmp_path):
@@ -92,10 +91,11 @@ def test_environment_override_selects_matching_yaml(monkeypatch, tmp_path):
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     (config_dir / "default.yaml").write_text(
-        "environment: development\nbootstrap_sample_data: true\n"
+        "environment: development\nlog_level: INFO\n",
+        encoding="utf-8",
     )
-    (config_dir / "development.yaml").write_text("reranker_enabled: false\n")
-    (config_dir / "production.yaml").write_text("reranker_enabled: true\n")
+    (config_dir / "development.yaml").write_text("log_level: DEBUG\n")
+    (config_dir / "production.yaml").write_text("log_level: WARNING\n")
     monkeypatch.setattr(config_settings, "CONFIG_DIR", config_dir)
     monkeypatch.setattr(config_settings, "ENV_FILE", tmp_path / ".env")
     monkeypatch.setenv("SCHOLARMIND_ENVIRONMENT", "production")
@@ -104,7 +104,7 @@ def test_environment_override_selects_matching_yaml(monkeypatch, tmp_path):
     settings = config_settings.get_settings()
 
     assert settings.environment == "production"
-    assert settings.reranker_enabled is True
+    assert settings.log_level == "WARNING"
 
 
 def test_production_defaults_to_local_qdrant_service(monkeypatch, tmp_path):
@@ -145,20 +145,6 @@ def test_default_embedding_model_is_embedding_3():
 def test_embedding_model_rejects_unsupported_value():
     with pytest.raises(ValidationError):
         config_settings.Settings(embedding_model="text-embedding-3-large")
-
-
-def test_remote_reranker_env_overrides(monkeypatch, tmp_path):
-    monkeypatch.setattr(config_settings, "ENV_FILE", tmp_path / ".env")
-    monkeypatch.setenv("SCHOLARMIND_RERANKER_PROVIDER", "remote")
-    monkeypatch.setenv("SCHOLARMIND_RERANKER_BASE_URL", "http://host.docker.internal:18080")
-    monkeypatch.setenv("SCHOLARMIND_RERANKER_REQUEST_TIMEOUT_SECONDS", "6.5")
-    config_settings.get_settings.cache_clear()
-
-    settings = config_settings.get_settings()
-
-    assert settings.reranker_provider == "remote"
-    assert settings.reranker_base_url == "http://host.docker.internal:18080"
-    assert settings.reranker_request_timeout_seconds == 6.5
 
 
 def test_memory_injection_defaults():
@@ -235,16 +221,6 @@ def test_memory_yaml_decay_settings_are_loaded(monkeypatch, tmp_path):
     assert settings.memory_decay_enabled is False
     assert settings.memory_archive_threshold == 0.02
     assert settings.memory_access_boost_factor == 0.3
-
-
-def test_rag_top_k_defaults_match_final_consumers():
-    settings = config_settings.Settings()
-
-    assert settings.final_citation_top_k == 4
-    assert settings.idea_evidence_top_k == 10
-    assert settings.cross_domain_candidate_top_k == 10
-    assert settings.hybrid_candidate_multiplier == 4
-    assert IdeaNoveltyRequest(idea="valid novelty idea", user_id="u").max_papers == 10
 
 
 def test_memory_min_similarity_score_env_override(monkeypatch, tmp_path):

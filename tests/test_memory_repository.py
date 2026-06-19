@@ -10,7 +10,7 @@ from scholar_mind.memory.legacy_import import import_legacy_memory_file
 from scholar_mind.memory.rebuild import rebuild_memory_index
 from scholar_mind.memory.repository import MemoryRepository
 from scholar_mind.models.domain import StructuredMemoryRecord
-from scholar_mind.rag.index import QdrantIndex
+from scholar_mind.vector.index import QdrantIndex
 
 
 def _settings(tmp_path):
@@ -19,7 +19,6 @@ def _settings(tmp_path):
         memory_root_dir=str(tmp_path / "memories"),
         log_dir=str(tmp_path / "logs"),
         qdrant_location=":memory:",
-        bootstrap_sample_data=False,
     )
 
 
@@ -154,7 +153,7 @@ def test_import_legacy_memory_file_is_idempotent(tmp_path):
         "## mem_002\n"
         "- created_at: 2026-04-14T10:40:25+00:00\n"
         "- source: explicit\n"
-        "- content: 用户关注 RAG 评测。\n\n",
+        "- content: 用户关注长期记忆评测。\n\n",
         encoding="utf-8",
     )
 

@@ -9,12 +9,11 @@ except ImportError:  # pragma: no cover - optional at runtime
 
 from scholar_mind.config.settings import Settings
 from scholar_mind.models.providers import build_provider_bundle
-from scholar_mind.rag.embeddings import (
+from scholar_mind.vector.embeddings import (
     EmbeddingService,
     OpenAICompatibleEmbeddingService,
     RemoteEmbeddingService,
 )
-from scholar_mind.rag.reranker import LexicalReranker, RemoteReranker, SentenceTransformerReranker
 
 
 def build_chat_models(settings: Settings) -> dict[str, Any]:
@@ -75,18 +74,3 @@ def build_embedding_service(settings: Settings) -> EmbeddingService:
             dimension=dimension,
         )
     raise RuntimeError(f"Unsupported embedding model: {settings.embedding_model}")
-
-
-def build_reranker(settings: Settings):
-    if not settings.reranker_enabled:
-        return LexicalReranker()
-    if settings.reranker_provider == "remote":
-        return RemoteReranker(
-            model_name=settings.reranker_model,
-            base_url=settings.reranker_base_url,
-            api_key=settings.reranker_api_key,
-            timeout_seconds=settings.reranker_request_timeout_seconds,
-        )
-    if settings.reranker_enabled:
-        return SentenceTransformerReranker(settings.reranker_model)
-    return LexicalReranker()

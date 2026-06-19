@@ -76,7 +76,6 @@ def _settings(tmp_path):
         memory_root_dir=str(tmp_path / "memories"),
         log_dir=str(tmp_path / "logs"),
         qdrant_location=":memory:",
-        bootstrap_sample_data=False,
     )
 
 
@@ -366,7 +365,7 @@ def test_operation_applier_uses_judge_for_embedding_gray_zone_duplicate(tmp_path
 
 def test_operation_applier_uses_judge_for_embedding_gray_zone_distinct(tmp_path):
     existing_content = "用户偏好回答时先给结论。"
-    candidate_content = "用户正在研究 RAG 评测。"
+    candidate_content = "用户正在研究长期记忆评测。"
     judge = _JudgeLLM("distinct")
     repository = _repository(tmp_path)
     repository.upsert(_record("mem_existing", existing_content))

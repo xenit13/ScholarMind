@@ -183,7 +183,6 @@ def _get_memory_eval_v2_service(container: Any):
 _CSV_COLUMNS = [
     "request_overview_json",
     "memory_data_json",
-    "rag_data_json",
 ]
 
 
@@ -217,10 +216,6 @@ def _export_json(rows: list[dict]) -> Any:
                         "retrieval_event": None,
                         "extraction_event": None,
                     },
-                ),
-                "rag_data": row.get(
-                    "rag_data",
-                    {"metrics": {}, "events": [], "empty_retrieval": False},
                 ),
             }
         )

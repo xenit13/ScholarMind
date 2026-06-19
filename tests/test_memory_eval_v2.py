@@ -5,7 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import HumanMessage
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 from typer.testing import CliRunner
@@ -17,12 +16,11 @@ from scholar_mind.api.routes.eval import (
 )
 from scholar_mind.db.models import Base
 from scholar_mind.db.session import init_database
-from scholar_mind.memory.context import finish_memory_context, init_memory_context
 from scholar_mind.main import cli_app
+from scholar_mind.memory.context import finish_memory_context, init_memory_context
 from scholar_mind.memory.manager import MemoryManager
 from scholar_mind.services.memory_eval_v2 import MemoryEvalServiceV2, MemoryEvalV2Repository
 from scholar_mind.services.repositories import OnlineEvalRepository
-from scholar_mind.services.research import ResearchService
 from scholar_mind.utils.token_estimator import estimate_text_tokens
 
 
@@ -134,7 +132,6 @@ def _seed_request_with_v2_events(components, request_id: str = "req_mem_v2") -> 
             "final_answer": "会按你的中文偏好回答。",
             "memory_score": 0.5,
             "execution_health_score": 0.93,
-            "rag_metrics": {"strategy_used": "hybrid"},
             "memory_metrics": {},
             "execution_health": {"execution_health_score": 0.93, "total_latency_ms": 1200},
         }
@@ -174,7 +171,7 @@ def _seed_request_with_v2_events(components, request_id: str = "req_mem_v2") -> 
         "user_1",
         [
             ("m1", "用户偏好中文回答"),
-            ("m2", "用户长期关注 RAG 检索评测"),
+            ("m2", "用户长期关注长期记忆检索评测"),
         ],
     )
 
@@ -370,7 +367,6 @@ def test_memory_eval_v2_allows_missing_extraction_component(
             "final_answer": "会按你的中文偏好回答。",
             "memory_score": 0.5,
             "execution_health_score": 0.93,
-            "rag_metrics": {"strategy_used": "hybrid"},
             "memory_metrics": {},
             "execution_health": {"execution_health_score": 0.93, "total_latency_ms": 1200},
         }
@@ -753,111 +749,6 @@ def test_memory_library_audit_cli_round_trip(memory_eval_components, monkeypatch
     assert report_result.exit_code == 0
     report = json.loads(report_result.stdout)
     assert report["report_id"] == evaluated["report_id"]
-
-
-def test_research_service_schedules_request_scoped_memory_extraction(
-    memory_eval_components,
-    monkeypatch,
-):
-    direct_calls = []
-    scheduled_calls = []
-
-    class _FakeMemoryManager:
-        def extract_request_memories(self, **kwargs):
-            direct_calls.append(kwargs)
-            raise AssertionError("request-scoped extraction must not run on the request path")
-
-    from scholar_mind.services import research as research_module
-
-    def _fake_enqueue(**kwargs):
-        scheduled_calls.append(kwargs)
-
-    monkeypatch.setattr(
-        research_module,
-        "_enqueue_request_memory_extraction",
-        _fake_enqueue,
-        raising=False,
-    )
-
-    service = ResearchService(
-        settings=SimpleNamespace(),
-        session_repository=SimpleNamespace(),
-        metrics_repository=SimpleNamespace(),
-        memory_manager=_FakeMemoryManager(),
-        orchestrator=SimpleNamespace(),
-        online_eval_repository=None,
-        memory_eval_v2_repository=memory_eval_components["memory_repo"],
-        llm=None,
-    )
-
-    service._dispatch_request_memory_extraction(
-        user_id="user_1",
-        request_id="req_dispatch_v2",
-        round_messages=[HumanMessage(content="请记住我偏好中文回答")],
-        explicit_memories=["用户偏好中文回答"],
-    )
-
-    event = memory_eval_components["memory_repo"].get_memory_extraction_event("req_dispatch_v2")
-    assert direct_calls == []
-    assert scheduled_calls[0]["request_id"] == "req_dispatch_v2"
-    assert scheduled_calls[0]["user_id"] == "user_1"
-    assert scheduled_calls[0]["explicit_memories"] == ["用户偏好中文回答"]
-    assert (
-        scheduled_calls[0]["round_messages"][0]["message"]["data"]["content"]
-        == "请记住我偏好中文回答"
-    )
-    assert event is not None
-    assert event["dispatch_success"] is True
-    assert event["total_tokens"] is None
-
-
-def test_research_service_does_not_fallback_to_sync_extraction_when_enqueue_fails(
-    memory_eval_components,
-    monkeypatch,
-):
-    direct_calls = []
-
-    class _FakeMemoryManager:
-        def extract_request_memories(self, **kwargs):
-            direct_calls.append(kwargs)
-            raise AssertionError("failed enqueue must not fall back to synchronous extraction")
-
-    from scholar_mind.services import research as research_module
-
-    def _fake_enqueue(**_kwargs):
-        raise RuntimeError("broker unavailable")
-
-    monkeypatch.setattr(
-        research_module,
-        "_enqueue_request_memory_extraction",
-        _fake_enqueue,
-        raising=False,
-    )
-
-    service = ResearchService(
-        settings=SimpleNamespace(),
-        session_repository=SimpleNamespace(),
-        metrics_repository=SimpleNamespace(),
-        memory_manager=_FakeMemoryManager(),
-        orchestrator=SimpleNamespace(),
-        online_eval_repository=None,
-        memory_eval_v2_repository=memory_eval_components["memory_repo"],
-        llm=None,
-    )
-
-    service._dispatch_request_memory_extraction(
-        user_id="user_1",
-        request_id="req_dispatch_failed",
-        round_messages=[HumanMessage(content="请记住我偏好中文回答")],
-        explicit_memories=[],
-    )
-
-    event = memory_eval_components["memory_repo"].get_memory_extraction_event(
-        "req_dispatch_failed"
-    )
-    assert direct_calls == []
-    assert event is not None
-    assert event["dispatch_success"] is False
 
 
 @pytest.mark.asyncio

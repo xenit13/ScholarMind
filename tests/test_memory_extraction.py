@@ -88,7 +88,7 @@ def test_extract_memory_candidates_accepts_core_memory_types():
                     ),
                     MemoryCandidate(
                         memory_type="research_interest",
-                        content="用户关注 RAG 评测。",
+                        content="用户关注长期记忆评测。",
                         source="conversation",
                     ),
                     MemoryCandidate(

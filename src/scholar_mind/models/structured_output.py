@@ -4,8 +4,9 @@ import asyncio
 import inspect
 import json
 import logging
+from collections.abc import Callable
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 from scholar_mind.models.callbacks import UsageTracker, usage_dict
 
@@ -151,7 +152,8 @@ def invoke_structured_output_with_raw(
             if retry_output is None:
                 if retry_error is not None:
                     logger.error(
-                        "Structured output retry failed: reason=%s, expected_schema=%s, actual_schema=%s",
+                        "Structured output retry failed: reason=%s, expected_schema=%s, "
+                        "actual_schema=%s",
                         str(retry_error),
                         expected_schema,
                         actual_schema_text(retry_raw),
@@ -226,7 +228,8 @@ async def ainvoke_structured_output_with_raw(
             if retry_output is None:
                 if retry_error is not None:
                     logger.error(
-                        "Structured output retry failed: reason=%s, expected_schema=%s, actual_schema=%s",
+                        "Structured output retry failed: reason=%s, expected_schema=%s, "
+                        "actual_schema=%s",
                         str(retry_error),
                         expected_schema,
                         actual_schema_text(retry_raw),

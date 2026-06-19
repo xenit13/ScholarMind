@@ -28,7 +28,9 @@ class MessageCompressor:
         compressed, _ = self.compress_with_usage(messages)
         return compressed
 
-    def compress_with_usage(self, messages: list[BaseMessage]) -> tuple[list[BaseMessage], dict[str, float]]:
+    def compress_with_usage(
+        self, messages: list[BaseMessage]
+    ) -> tuple[list[BaseMessage], dict[str, float]]:
         if not messages:
             return messages, empty_usage()
 

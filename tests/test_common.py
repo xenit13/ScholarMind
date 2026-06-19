@@ -5,7 +5,7 @@ import logging
 import pytest
 from pydantic import BaseModel
 
-from scholar_mind.agents.common import (
+from scholar_mind.models.structured_output import (
     ainvoke_structured_output,
     empty_usage,
     invoke_structured_output,

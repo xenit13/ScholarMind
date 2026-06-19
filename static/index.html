@@ -46,7 +46,7 @@
           </svg>
         </div>
         <h1 class="login-title">ScholarMind</h1>
-        <p class="login-subtitle">AI-Powered Research Assistant</p>
+        <p class="login-subtitle">Memory Evaluation Runtime</p>
       </div>
       <div class="login-form">
         <div class="login-field">
@@ -57,7 +57,7 @@
           <span>Enter</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </button>
-        <p class="login-footer">Neural Retrieval · Knowledge Graph · Adaptive Memory</p>
+        <p class="login-footer">Official Benchmark · Memory Dashboard · Eval Export</p>
       </div>
     </div>
   </div>
@@ -125,16 +125,10 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
               </button>
               <div id="feature-dropdown" class="feature-dropdown hidden">
-                <div class="feature-option selected" data-value="">Default Chat</div>
-                <div class="feature-option" data-value="qa">Paper Q&A</div>
-                <div class="feature-option" data-value="idea_novelty">Idea Novelty</div>
-                <div class="feature-option" data-value="trend">Trend Analysis</div>
-                <div class="feature-option" data-value="cross_domain">Cross-Domain</div>
-                <div class="feature-option" data-value="study_plan">Study Plan</div>
-                <div class="feature-option" data-value="paper_reading">Paper Reading</div>
+                <div class="feature-option selected" data-value="">Memory Eval</div>
               </div>
             </div>
-            <textarea id="message-input" placeholder="Send a message..." rows="1"></textarea>
+            <textarea id="message-input" placeholder="Open the admin dashboard for memory eval results..." rows="1"></textarea>
             <button id="send-btn" class="btn-send" disabled title="Send message">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
             </button>
@@ -184,7 +178,7 @@
             <!-- Dashboard panel -->
             <div id="panel-dashboard">
 
-            <!-- ① Core Stat Cards (8) -->
+            <!-- ① Core Stat Cards -->
             <div class="stats-grid stats-grid-4">
               <div class="stat-card">
                 <div class="stat-title">Total Requests</div>
@@ -205,10 +199,6 @@
               <div class="stat-card">
                 <div class="stat-title">Overall Score</div>
                 <div class="stat-value" id="stat-avg-score">--</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-title">RAG Score</div>
-                <div class="stat-value" id="stat-rag-score">--</div>
               </div>
               <div class="stat-card">
                 <div class="stat-title">Memory Score</div>
@@ -234,12 +224,8 @@
               </div>
             </div>
 
-            <!-- ③ Strategy Comparison + Memory Metrics -->
+            <!-- ③ Memory Metrics -->
             <div class="chart-row">
-              <div class="chart-section chart-section-wide">
-                <h3>RAG Strategy Comparison</h3>
-                <canvas id="strategy-chart"></canvas>
-              </div>
               <div class="chart-section chart-section-narrow">
                 <h3>Memory Metrics</h3>
                 <div class="memory-grid" id="memory-stats"></div>
@@ -269,7 +255,6 @@
                       <th>Query</th>
                       <th class="sortable" data-sort="query_type">Type <span class="sort-arrow"></span></th>
                       <th class="sortable" data-sort="overall_score">Overall <span class="sort-arrow"></span></th>
-                      <th class="sortable" data-sort="rag_score">RAG <span class="sort-arrow"></span></th>
                       <th class="sortable" data-sort="memory_score">Memory <span class="sort-arrow"></span></th>
                       <th class="sortable" data-sort="answer_quality_score">Answer <span class="sort-arrow"></span></th>
                       <th class="sortable" data-sort="created_at">Time <span class="sort-arrow"></span></th>

@@ -2,49 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Float, Integer, String, Text, text
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
     pass
-
-
-class PaperModel(Base):
-    __tablename__ = "papers"
-
-    paper_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    title: Mapped[str] = mapped_column(String(500))
-    authors_json: Mapped[str] = mapped_column(Text)
-    abstract: Mapped[str] = mapped_column(Text)
-    categories_json: Mapped[str] = mapped_column(Text)
-    publish_date: Mapped[datetime.date] = mapped_column(Date, index=True)
-    citation_count: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    has_source: Mapped[bool] = mapped_column(Boolean, default=False)
-
-
-class PaperSectionModel(Base):
-    __tablename__ = "paper_sections"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    paper_id: Mapped[str] = mapped_column(String(64), index=True)
-    section_id: Mapped[str] = mapped_column(String(64))
-    title: Mapped[str] = mapped_column(String(255))
-    content: Mapped[str] = mapped_column(Text)
-    level: Mapped[int] = mapped_column(Integer, default=1)
-
-
-class PaperChunkModel(Base):
-    __tablename__ = "paper_chunks"
-
-    chunk_id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    paper_id: Mapped[str] = mapped_column(String(64), index=True)
-    chunk_type: Mapped[str] = mapped_column(String(32))
-    section: Mapped[str] = mapped_column(String(255))
-    subsection: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    content: Mapped[str] = mapped_column(Text)
-    token_count: Mapped[int] = mapped_column(Integer)
-    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
 
 
 class SessionModel(Base):
@@ -56,7 +19,6 @@ class SessionModel(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     message_count: Mapped[int] = mapped_column(Integer, default=0)
     topics_json: Mapped[str] = mapped_column(Text, default="[]")
-    papers_json: Mapped[str] = mapped_column(Text, default="[]")
     memory_context_loaded: Mapped[bool] = mapped_column(Boolean, default=False)
     last_state_json: Mapped[str] = mapped_column(Text, default="{}")
 
@@ -162,7 +124,7 @@ class MemoryOperationEventModel(Base):
 
 
 # ---------------------------------------------------------------------------
-# Request audit and RAG evaluation models (Document 23)
+# Request audit models
 # ---------------------------------------------------------------------------
 
 
@@ -175,20 +137,6 @@ class RequestRunModel(Base):
     query: Mapped[str] = mapped_column(Text)
     query_type: Mapped[str] = mapped_column(String(32))
     final_answer: Mapped[str] = mapped_column(Text, default="")
-    rag_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    faithfulness: Mapped[float | None] = mapped_column(Float, nullable=True)
-    answer_relevancy: Mapped[float | None] = mapped_column(Float, nullable=True)
-    context_precision: Mapped[float | None] = mapped_column(Float, nullable=True)
-    context_recall: Mapped[float | None] = mapped_column(Float, nullable=True)
-    noise_sensitivity: Mapped[float | None] = mapped_column(Float, nullable=True)
-    semantic_similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
-    redundancy: Mapped[float | None] = mapped_column(Float, nullable=True)
-    completeness: Mapped[float | None] = mapped_column(Float, nullable=True)
-    rag_eval_status: Mapped[str] = mapped_column(String(32), default="pending")
-    rag_scored_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-    )
     memory_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     execution_health_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     has_retry: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -198,105 +146,6 @@ class RequestRunModel(Base):
     agent_trace_json: Mapped[str] = mapped_column(Text, default="[]")
     agent_events_json: Mapped[str] = mapped_column(Text, default="[]")
     answer_event_json: Mapped[str] = mapped_column(Text, default="{}")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-
-
-class RagRetrievalEventV2Model(Base):
-    __tablename__ = "rag_retrieval_events_v2"
-
-    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    request_id: Mapped[str] = mapped_column(String(64), index=True)
-    query: Mapped[str] = mapped_column(Text)
-    normalized_query: Mapped[str | None] = mapped_column(Text, nullable=True)
-    strategy: Mapped[str] = mapped_column(String(32))
-    top_k: Mapped[int] = mapped_column(Integer)
-    filters_json: Mapped[str] = mapped_column(Text, default="{}")
-    latency_ms: Mapped[int] = mapped_column(Integer)
-    returned_contexts_json: Mapped[str] = mapped_column(Text, default="[]")
-    returned_chunk_ids_json: Mapped[str] = mapped_column(Text, default="[]")
-    returned_paper_ids_json: Mapped[str] = mapped_column(Text, default="[]")
-    rag_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    faithfulness: Mapped[float | None] = mapped_column(Float, nullable=True)
-    answer_relevancy: Mapped[float | None] = mapped_column(Float, nullable=True)
-    context_precision: Mapped[float | None] = mapped_column(Float, nullable=True)
-    context_recall: Mapped[float | None] = mapped_column(Float, nullable=True)
-    noise_sensitivity: Mapped[float | None] = mapped_column(Float, nullable=True)
-    semantic_similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
-    redundancy: Mapped[float | None] = mapped_column(Float, nullable=True)
-    completeness: Mapped[float | None] = mapped_column(Float, nullable=True)
-    caller_agent: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    tool_name: Mapped[str] = mapped_column(String(64), default="rag_retrieve")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-
-
-class RequestRagEvalAnnotationModel(Base):
-    __tablename__ = "request_rag_eval_annotations"
-
-    request_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    reference: Mapped[str] = mapped_column(Text)
-    required_points_json: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=text("CURRENT_TIMESTAMP"),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=text("CURRENT_TIMESTAMP"),
-    )
-
-
-class RagEvalCaseModel(Base):
-    __tablename__ = "rag_eval_cases"
-
-    case_id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    user_input: Mapped[str] = mapped_column(Text)
-    reference: Mapped[str] = mapped_column(Text)
-    required_points_json: Mapped[str] = mapped_column(Text, default="[]")
-    tags_json: Mapped[str] = mapped_column(Text, default="{}")
-    expected_source_ids_json: Mapped[str] = mapped_column(Text, default="[]")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-
-
-class RagEvalRunV2Model(Base):
-    __tablename__ = "rag_eval_runs_v2"
-
-    run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    dataset_name: Mapped[str] = mapped_column(String(128), index=True)
-    strategies_json: Mapped[str] = mapped_column(Text, default="[]")
-    metrics_json: Mapped[str] = mapped_column(Text, default="[]")
-    ragas_model: Mapped[str] = mapped_column(String(128), default="")
-    embedding_model: Mapped[str] = mapped_column(String(128), default="")
-    status: Mapped[str] = mapped_column(String(32), default="running", index=True)
-    sample_count: Mapped[int] = mapped_column(Integer, default=0)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-
-class RagEvalResultV2Model(Base):
-    __tablename__ = "rag_eval_results_v2"
-
-    result_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    run_id: Mapped[str] = mapped_column(String(64), index=True)
-    case_id: Mapped[str] = mapped_column(String(128), index=True)
-    strategy: Mapped[str] = mapped_column(String(32), index=True)
-    user_input: Mapped[str] = mapped_column(Text)
-    response: Mapped[str] = mapped_column(Text)
-    retrieved_chunk_ids_json: Mapped[str] = mapped_column(Text, default="[]")
-    retrieved_contexts_json: Mapped[str] = mapped_column(Text, default="[]")
-    faithfulness: Mapped[float | None] = mapped_column(Float, nullable=True)
-    answer_relevancy: Mapped[float | None] = mapped_column(Float, nullable=True)
-    context_precision: Mapped[float | None] = mapped_column(Float, nullable=True)
-    context_recall: Mapped[float | None] = mapped_column(Float, nullable=True)
-    noise_sensitivity: Mapped[float | None] = mapped_column(Float, nullable=True)
-    semantic_similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
-    retrieval_latency_ms: Mapped[int] = mapped_column(Integer, default=0)
-    redundancy: Mapped[float] = mapped_column(Float, default=0.0)
-    completeness: Mapped[float | None] = mapped_column(Float, nullable=True)
-    rag_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    metric_errors_json: Mapped[str] = mapped_column(Text, default="{}")
-    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

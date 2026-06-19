@@ -28,17 +28,17 @@ from scholar_mind.models.domain import (
     MessageLogEntry,
     StructuredMemoryRecord,
 )
+from scholar_mind.models.eval_models import MemoryCallEvent, MemoryOperation
 from scholar_mind.models.structured_output import (
     extract_json_candidate,
     invoke_structured_output,
     merge_usage,
     raw_output_text,
 )
-from scholar_mind.models.eval_models import MemoryCallEvent, MemoryOperation
-from scholar_mind.rag.embeddings import EmbeddingService
-from scholar_mind.rag.index import QdrantIndex
 from scholar_mind.utils.messages import deserialize_messages, serialize_messages
 from scholar_mind.utils.token_estimator import estimate_text_tokens
+from scholar_mind.vector.embeddings import EmbeddingService
+from scholar_mind.vector.index import QdrantIndex
 
 MEMORY_DUPLICATE_SCORE_THRESHOLD = 0.95
 ROUND_MEMORY_DEDUP_SCORE_THRESHOLD = 0.9
@@ -883,7 +883,7 @@ class MemoryManager:
             "```json\n"
             "{\n"
             "  \"memories\": [\n"
-            "    \"User focuses on RAG and multi-agent systems research.\",\n"
+            "    \"User focuses on long-term memory evaluation.\",\n"
             "    \"User prefers concise, structured answers.\",\n"
             "    \"User wants prompt rewrites to follow a production-grade structured format.\"\n"
             "  ]\n"

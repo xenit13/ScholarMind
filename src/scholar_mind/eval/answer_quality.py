@@ -54,7 +54,7 @@ def compute_answer_quality_score(
     query_type: str,
     final_answer: str,
 ) -> float | None:
-    """Compute answer quality without using RAG or Memory signals."""
+    """Compute answer quality without retrieval or memory signals."""
     query = (query or "").strip()
     answer = (final_answer or "").strip()
     if not answer or _is_failure_answer(answer):
@@ -124,7 +124,8 @@ def _format_compliance(query: str, answer: str) -> float:
     satisfied = 0
     if any(marker in query_lower for marker in ("list", "bullet", "列出", "清单", "要点")):
         requirements += 1
-        satisfied += int(_has_list_or_steps(answer) or "recommendation" in answer.lower() or "建议" in answer)
+        has_recommendation = "recommendation" in answer.lower() or "建议" in answer
+        satisfied += int(_has_list_or_steps(answer) or has_recommendation)
     if any(marker in query_lower for marker in ("table", "表格")):
         requirements += 1
         satisfied += int("|" in answer or "\t" in answer)
@@ -152,7 +153,12 @@ def _clarity(answer: str, *, query_type: str) -> float:
     structure_score = 1.0 if len(sentences) > 1 or _has_list_or_steps(answer) else 0.7
     repetition_score = _repetition_score(answer)
     type_bonus = 0.05 if query_type and query_type != "unknown" else 0.0
-    return _clamp((0.40 * sentence_score) + (0.30 * structure_score) + (0.30 * repetition_score) + type_bonus)
+    return _clamp(
+        (0.40 * sentence_score)
+        + (0.30 * structure_score)
+        + (0.30 * repetition_score)
+        + type_bonus
+    )
 
 
 def _keywords(text: str) -> list[str]:

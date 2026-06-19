@@ -1,7 +1,6 @@
 app_name: ScholarMind
 environment: development
 log_level: INFO
-bootstrap_sample_data: true
 database_url: sqlite:///data/sqlite/scholar_mind.db
 checkpoint_database_url: sqlite:///data/sqlite/checkpoints.db
 redis_url: redis://localhost:6379/0
@@ -20,29 +19,12 @@ embedding_base_url: https://open.bigmodel.cn/api/paas/v4
 #embedding_model: baai/bge-m3
 #embedding_base_url: https://openrouter.ai/api/v1
 embedding_api_key:
-reranker_provider: remote
-reranker_model: bge-reranker-v2-m3
-reranker_enabled: true
-reranker_base_url: http://192.168.2.4:8001/v1
-reranker_api_key:
-reranker_request_timeout_seconds: 10.0
 default_user_id: local-user
-default_rag_strategy: hybrid
-# Top-K semantics: pass the final consumer count to RAG; hybrid strategies expand candidates by multiplier.
-default_top_k: 4
-final_citation_top_k: 4
-idea_evidence_top_k: 10
-cross_domain_candidate_top_k: 10
-hybrid_candidate_multiplier: 4
-ragas_context_top_k: 5
 message_context_window_tokens: 32768
 message_compact_threshold_ratio: 0.75
 memory_top_k: 5
 memory_min_similarity_score: 0.6
-papers_seed_path: data/processed/sample_papers.json
 log_dir: data/message_logs
 memory_root_dir: data/memory
 eval_root_dir: data/eval
-raw_data_dir: data/raw
-processed_data_dir: data/processed
 prompt_dir: config/prompts

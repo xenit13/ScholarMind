@@ -15,8 +15,6 @@ fi
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:${PORT}/api/v1/health}"
 LOG_FILE="${LOG_FILE:-$ROOT_DIR/data/logs/scholar_mind.log}"
 PID_FILE="${PID_FILE:-$ROOT_DIR/data/run/scholar_mind.pid}"
-WORKER_PID_FILE="${WORKER_PID_FILE:-$ROOT_DIR/data/run/scholar_mind_worker.pid}"
-SCHEDULER_PID_FILE="${SCHEDULER_PID_FILE:-$ROOT_DIR/data/run/scholar_mind_scheduler.pid}"
 CLOUDFLARED_ORIGIN_URL="${CLOUDFLARED_ORIGIN_URL:-http://127.0.0.1:${PORT}}"
 CLOUDFLARED_LOG_FILE="${CLOUDFLARED_LOG_FILE:-$ROOT_DIR/data/logs/cloudflared.log}"
 CLOUDFLARED_PID_FILE="${CLOUDFLARED_PID_FILE:-$ROOT_DIR/data/run/cloudflared.pid}"
@@ -57,8 +55,7 @@ done
 export SCHOLARMIND_ENVIRONMENT="${SCHOLARMIND_ENVIRONMENT:-production}"
 
 mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$CLOUDFLARED_LOG_FILE")" \
-  "$(dirname "$PID_FILE")" "$(dirname "$WORKER_PID_FILE")" \
-  "$(dirname "$SCHEDULER_PID_FILE")" "$(dirname "$CLOUDFLARED_PID_FILE")" \
+  "$(dirname "$PID_FILE")" "$(dirname "$CLOUDFLARED_PID_FILE")" \
   "$(dirname "$CLOUDFLARED_URL_FILE")" "$ROOT_DIR/data/sqlite" \
   "$ROOT_DIR/data/qdrant" "$ROOT_DIR/data/redis"
 
@@ -196,79 +193,6 @@ start_app() {
   exit 1
 }
 
-start_worker() {
-  if [[ -f "$WORKER_PID_FILE" ]]; then
-    existing_pid="$(cat "$WORKER_PID_FILE")"
-    if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
-      echo "[worker] already running with pid $existing_pid"
-      return
-    fi
-    rm -f "$WORKER_PID_FILE"
-  fi
-
-  echo "[worker] starting..."
-  if command -v setsid >/dev/null 2>&1; then
-    setsid env PYTHONPATH=src "$PYTHON" -m celery \
-      -A scholar_mind.pipeline.tasks:celery_app worker \
-      --loglevel=info \
-      </dev/null \
-      >>"$LOG_FILE" 2>&1 &
-  else
-    nohup env PYTHONPATH=src "$PYTHON" -m celery \
-      -A scholar_mind.pipeline.tasks:celery_app worker \
-      --loglevel=info \
-      </dev/null \
-      >>"$LOG_FILE" 2>&1 &
-  fi
-  worker_pid="$!"
-  echo "$worker_pid" > "$WORKER_PID_FILE"
-
-  # brief wait to confirm the process doesn't immediately crash
-  sleep 2
-  if ! kill -0 "$worker_pid" 2>/dev/null; then
-    echo "[worker] failed to start" >&2
-    rm -f "$WORKER_PID_FILE"
-    exit 1
-  fi
-  echo "[worker] started successfully (pid $worker_pid)"
-}
-
-start_scheduler() {
-  if [[ -f "$SCHEDULER_PID_FILE" ]]; then
-    existing_pid="$(cat "$SCHEDULER_PID_FILE")"
-    if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
-      echo "[scheduler] already running with pid $existing_pid"
-      return
-    fi
-    rm -f "$SCHEDULER_PID_FILE"
-  fi
-
-  echo "[scheduler] starting..."
-  if command -v setsid >/dev/null 2>&1; then
-    setsid env PYTHONPATH=src "$PYTHON" -m celery \
-      -A scholar_mind.pipeline.tasks:celery_app beat \
-      --loglevel=info \
-      </dev/null \
-      >>"$LOG_FILE" 2>&1 &
-  else
-    nohup env PYTHONPATH=src "$PYTHON" -m celery \
-      -A scholar_mind.pipeline.tasks:celery_app beat \
-      --loglevel=info \
-      </dev/null \
-      >>"$LOG_FILE" 2>&1 &
-  fi
-  scheduler_pid="$!"
-  echo "$scheduler_pid" > "$SCHEDULER_PID_FILE"
-
-  sleep 2
-  if ! kill -0 "$scheduler_pid" 2>/dev/null; then
-    echo "[scheduler] failed to start" >&2
-    rm -f "$SCHEDULER_PID_FILE"
-    exit 1
-  fi
-  echo "[scheduler] started successfully (pid $scheduler_pid)"
-}
-
 extract_cloudflared_url() {
   awk '
     match($0, /https:\/\/[-A-Za-z0-9.]+\.trycloudflare\.com/) {
@@ -356,8 +280,6 @@ echo "[db] initializing..."
 PYTHONPATH=src "$PYTHON" -m scholar_mind.db.init_db
 
 start_app
-start_worker
-start_scheduler
 
 if [[ "$ENABLE_WEB_TUNNEL" -eq 1 ]]; then
   start_web_tunnel
@@ -368,8 +290,6 @@ echo "========================================="
 echo " ScholarMind is running"
 echo "========================================="
 echo " App:     $HEALTH_URL  (pid $(cat "$PID_FILE"))"
-echo " Worker:  pid $(cat "$WORKER_PID_FILE")"
-echo " Scheduler: pid $(cat "$SCHEDULER_PID_FILE")"
 if [[ "$ENABLE_WEB_TUNNEL" -eq 1 && -f "$CLOUDFLARED_URL_FILE" ]]; then
   echo " Web:     $(cat "$CLOUDFLARED_URL_FILE")  (pid $(cat "$CLOUDFLARED_PID_FILE"))"
 fi

@@ -301,7 +301,6 @@ def test_memory_manager_reranks_structured_memory_and_records_injected_access(tm
         memory_root_dir=str(tmp_path / "memories"),
         log_dir=str(tmp_path / "logs"),
         qdrant_location=":memory:",
-        bootstrap_sample_data=False,
         memory_top_k=1,
         memory_min_similarity_score=0.0,
         memory_min_final_score=0.0,
@@ -370,7 +369,6 @@ def test_memory_manager_decay_disabled_uses_semantic_order(tmp_path):
         memory_root_dir=str(tmp_path / "memories"),
         log_dir=str(tmp_path / "logs"),
         qdrant_location=":memory:",
-        bootstrap_sample_data=False,
         memory_top_k=1,
         memory_min_similarity_score=0.0,
         memory_decay_enabled=False,
@@ -425,7 +423,6 @@ def test_memory_manager_formats_discrete_memory_in_structured_context(tmp_path):
         memory_root_dir=str(tmp_path / "memories"),
         log_dir=str(tmp_path / "logs"),
         qdrant_location=":memory:",
-        bootstrap_sample_data=False,
         memory_top_k=1,
         memory_min_similarity_score=0.0,
         memory_min_final_score=0.0,
@@ -477,7 +474,6 @@ def test_memory_manager_save_sync_writes_structured_repository_when_available(tm
         memory_root_dir=str(tmp_path / "memories"),
         log_dir=str(tmp_path / "logs"),
         qdrant_location=":memory:",
-        bootstrap_sample_data=False,
     )
     init_database(settings)
     repository = MemoryRepository(build_session_factory(settings))
@@ -507,7 +503,6 @@ def test_memory_manager_extract_request_memories_uses_structured_operations(tmp_
         memory_root_dir=str(tmp_path / "memories"),
         log_dir=str(tmp_path / "logs"),
         qdrant_location=":memory:",
-        bootstrap_sample_data=False,
     )
     init_database(settings)
     repository = MemoryRepository(build_session_factory(settings))
@@ -570,7 +565,6 @@ def test_memory_manager_drops_prohibited_candidate_before_structured_write(tmp_p
         memory_root_dir=str(tmp_path / "memories"),
         log_dir=str(tmp_path / "logs"),
         qdrant_location=":memory:",
-        bootstrap_sample_data=False,
     )
     init_database(settings)
     repository = MemoryRepository(build_session_factory(settings))
@@ -637,7 +631,6 @@ def test_memory_manager_uses_model_admission_before_structured_write(tmp_path):
         memory_root_dir=str(tmp_path / "memories"),
         log_dir=str(tmp_path / "logs"),
         qdrant_location=":memory:",
-        bootstrap_sample_data=False,
     )
     init_database(settings)
     repository = MemoryRepository(build_session_factory(settings))
@@ -710,7 +703,6 @@ def test_memory_manager_structured_path_keeps_explicit_memories_when_llm_fails(t
         memory_root_dir=str(tmp_path / "memories"),
         log_dir=str(tmp_path / "logs"),
         qdrant_location=":memory:",
-        bootstrap_sample_data=False,
     )
     init_database(settings)
     repository = MemoryRepository(build_session_factory(settings))

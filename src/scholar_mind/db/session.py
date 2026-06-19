@@ -18,11 +18,6 @@ from scholar_mind.db.models import (
     MemoryLibraryAuditReportModel,
     MemoryRecordModel,
     MemoryRetrievalEventV2Model,
-    RagEvalCaseModel,
-    RagEvalResultV2Model,
-    RagEvalRunV2Model,
-    RagRetrievalEventV2Model,
-    RequestRagEvalAnnotationModel,
     RequestRunModel,
 )
 
@@ -87,11 +82,6 @@ def _ensure_metric_columns(engine) -> None:
 
 def _ensure_online_eval_schema(engine) -> None:
     RequestRunModel.__table__.create(bind=engine, checkfirst=True)
-    RagRetrievalEventV2Model.__table__.create(bind=engine, checkfirst=True)
-    RequestRagEvalAnnotationModel.__table__.create(bind=engine, checkfirst=True)
-    RagEvalCaseModel.__table__.create(bind=engine, checkfirst=True)
-    RagEvalRunV2Model.__table__.create(bind=engine, checkfirst=True)
-    RagEvalResultV2Model.__table__.create(bind=engine, checkfirst=True)
     MemoryRetrievalEventV2Model.__table__.create(bind=engine, checkfirst=True)
     MemoryExtractionEventV2Model.__table__.create(bind=engine, checkfirst=True)
     MemoryEvalAnnotationBatchModel.__table__.create(bind=engine, checkfirst=True)
@@ -100,45 +90,6 @@ def _ensure_online_eval_schema(engine) -> None:
     MemoryEvalReportV2Model.__table__.create(bind=engine, checkfirst=True)
     MemoryLibraryAuditBatchModel.__table__.create(bind=engine, checkfirst=True)
     MemoryLibraryAuditReportModel.__table__.create(bind=engine, checkfirst=True)
-    _ensure_table_columns(
-        engine,
-        "request_runs",
-        {
-            "rag_score": "FLOAT",
-            "faithfulness": "FLOAT",
-            "answer_relevancy": "FLOAT",
-            "context_precision": "FLOAT",
-            "context_recall": "FLOAT",
-            "noise_sensitivity": "FLOAT",
-            "semantic_similarity": "FLOAT",
-            "redundancy": "FLOAT",
-            "completeness": "FLOAT",
-            "rag_eval_status": "VARCHAR(32) DEFAULT 'pending'",
-            "rag_scored_at": "DATETIME",
-        },
-    )
-    _ensure_table_columns(
-        engine,
-        "rag_retrieval_events_v2",
-        {
-            "rag_score": "FLOAT",
-            "faithfulness": "FLOAT",
-            "answer_relevancy": "FLOAT",
-            "context_precision": "FLOAT",
-            "context_recall": "FLOAT",
-            "noise_sensitivity": "FLOAT",
-            "semantic_similarity": "FLOAT",
-            "redundancy": "FLOAT",
-            "completeness": "FLOAT",
-        },
-    )
-    _ensure_table_columns(
-        engine,
-        "rag_eval_results_v2",
-        {
-            "generated_at": "DATETIME",
-        },
-    )
 
 
 def _ensure_table_columns(engine, table_name: str, required: dict[str, str]) -> None:
@@ -212,7 +163,6 @@ def _cleanup_unused_schema(engine) -> None:
     retired_tables = {
         "memory_call_events",
         "request_eval_runs",
-        "rag_call_events",
         "request_eval_judgements",
     }
     with engine.begin() as connection:

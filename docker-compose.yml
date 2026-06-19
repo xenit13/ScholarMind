@@ -10,12 +10,6 @@ services:
       - EMBEDDING_API_KEY=${EMBEDDING_API_KEY}
       - SCHOLARMIND_EMBEDDING_MODEL=${SCHOLARMIND_EMBEDDING_MODEL:-embedding-3}
       - SCHOLARMIND_EMBEDDING_BASE_URL=${SCHOLARMIND_EMBEDDING_BASE_URL:-}
-      - SCHOLARMIND_RERANKER_PROVIDER=${SCHOLARMIND_RERANKER_PROVIDER:-local}
-      - SCHOLARMIND_RERANKER_MODEL=${SCHOLARMIND_RERANKER_MODEL:-bge-reranker-v2-m3}
-      - SCHOLARMIND_RERANKER_ENABLED=${SCHOLARMIND_RERANKER_ENABLED:-true}
-      - SCHOLARMIND_RERANKER_BASE_URL=${SCHOLARMIND_RERANKER_BASE_URL:-}
-      - SCHOLARMIND_RERANKER_API_KEY=${SCHOLARMIND_RERANKER_API_KEY:-}
-      - SCHOLARMIND_RERANKER_REQUEST_TIMEOUT_SECONDS=${SCHOLARMIND_RERANKER_REQUEST_TIMEOUT_SECONDS:-10.0}
       - SCHOLARMIND_DATABASE_URL=sqlite:///data/sqlite/scholar_mind.db
       - SCHOLARMIND_CHECKPOINT_DATABASE_URL=sqlite:///data/sqlite/checkpoints.db
       - SCHOLARMIND_QDRANT_URL=http://qdrant:6333
@@ -66,55 +60,6 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
-
-  worker:
-    build: .
-    command: celery -A scholar_mind.pipeline.tasks:celery_app worker --loglevel=info
-    environment:
-      - SCHOLARMIND_ENVIRONMENT=production
-      - ZAI_API_KEY=${ZAI_API_KEY}
-      - ZAI_BASE_URL=${ZAI_BASE_URL}
-      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY}
-      - SCHOLARMIND_EMBEDDING_MODEL=${SCHOLARMIND_EMBEDDING_MODEL:-embedding-3}
-      - SCHOLARMIND_EMBEDDING_BASE_URL=${SCHOLARMIND_EMBEDDING_BASE_URL:-}
-      - SCHOLARMIND_RERANKER_PROVIDER=${SCHOLARMIND_RERANKER_PROVIDER:-local}
-      - SCHOLARMIND_RERANKER_MODEL=${SCHOLARMIND_RERANKER_MODEL:-bge-reranker-v2-m3}
-      - SCHOLARMIND_RERANKER_ENABLED=${SCHOLARMIND_RERANKER_ENABLED:-true}
-      - SCHOLARMIND_RERANKER_BASE_URL=${SCHOLARMIND_RERANKER_BASE_URL:-}
-      - SCHOLARMIND_RERANKER_API_KEY=${SCHOLARMIND_RERANKER_API_KEY:-}
-      - SCHOLARMIND_RERANKER_REQUEST_TIMEOUT_SECONDS=${SCHOLARMIND_RERANKER_REQUEST_TIMEOUT_SECONDS:-10.0}
-      - SCHOLARMIND_DATABASE_URL=sqlite:///data/sqlite/scholar_mind.db
-      - SCHOLARMIND_CHECKPOINT_DATABASE_URL=sqlite:///data/sqlite/checkpoints.db
-      - SCHOLARMIND_QDRANT_URL=http://qdrant:6333
-      - SCHOLARMIND_REDIS_URL=redis://redis:6379/0
-      - SCHOLARMIND_BOOTSTRAP_SAMPLE_DATA=true
-      - SCHOLARMIND_CELERY_TASK_ALWAYS_EAGER=false
-    volumes:
-      - ./data:/app/data:z
-    depends_on:
-      qdrant:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  scheduler:
-    build: .
-    command: celery -A scholar_mind.pipeline.tasks:celery_app beat --loglevel=info
-    environment:
-      - SCHOLARMIND_ENVIRONMENT=production
-      - ZAI_API_KEY=${ZAI_API_KEY}
-      - ZAI_BASE_URL=${ZAI_BASE_URL}
-      - SCHOLARMIND_DATABASE_URL=sqlite:///data/sqlite/scholar_mind.db
-      - SCHOLARMIND_CHECKPOINT_DATABASE_URL=sqlite:///data/sqlite/checkpoints.db
-      - SCHOLARMIND_QDRANT_URL=http://qdrant:6333
-      - SCHOLARMIND_REDIS_URL=redis://redis:6379/0
-      - SCHOLARMIND_BOOTSTRAP_SAMPLE_DATA=true
-      - SCHOLARMIND_CELERY_TASK_ALWAYS_EAGER=false
-    volumes:
-      - ./data:/app/data:z
-    depends_on:
-      redis:
-        condition: service_healthy
 
   qdrant:
     image: qdrant/qdrant:v1.17.1

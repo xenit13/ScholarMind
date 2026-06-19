@@ -27,15 +27,9 @@
 
   const MAX_MESSAGES_PER_SESSION = 100;
   const STORAGE_QUOTA_MB = 4;  // stay under 4MB to avoid 5MB browser limit
-  const PERSISTENT_SESSION_FEATURES = new Set(['paper_reading']);
+  const PERSISTENT_SESSION_FEATURES = new Set();
   const FEATURES = {
-    '': { label: 'Default Chat', endpoint: '/research/stream' },
-    qa: { label: 'Paper Q&A', endpoint: '/research/ask/stream' },
-    idea_novelty: { label: 'Idea Novelty', endpoint: '/research/idea-novelty/stream' },
-    trend: { label: 'Trend Analysis', endpoint: '/research/trend/stream' },
-    cross_domain: { label: 'Cross-Domain', endpoint: '/research/cross-domain/stream' },
-    study_plan: { label: 'Study Plan', endpoint: '/research/study-plan/stream' },
-    paper_reading: { label: 'Paper Reading', endpoint: '/research/paper-reading/stream' },
+    '': { label: 'Memory Eval', endpoint: null },
   };
 
   // ----- DOM refs -----
@@ -82,7 +76,6 @@
           renderScoreTrend(state._lastTrendResp);
           if (state._lastOnlineResp) {
             renderByQueryType(state._lastOnlineResp);
-            renderByStrategy(state._lastOnlineResp);
           }
         }
       }, 200);
@@ -197,7 +190,6 @@
           renderScoreTrend(state._lastTrendResp);
           if (state._lastOnlineResp) {
             renderByQueryType(state._lastOnlineResp);
-            renderByStrategy(state._lastOnlineResp);
           }
         }
       });
@@ -414,7 +406,7 @@
       el.classList.toggle('selected', el.dataset.value === value);
     });
     $('#feature-dropdown').classList.add('hidden');
-    const label = FEATURES[value]?.label || 'Default Chat';
+    const label = FEATURES[value]?.label || 'Memory Eval';
     $('#feature-btn').classList.toggle('active', !!value);
 
     if (value) {
@@ -476,14 +468,11 @@
         </svg>
       </div>
       <h2>ScholarMind</h2>
-      <p>AI-Powered Research Assistant</p>
+      <p>Memory Evaluation Runtime</p>
       <div class="feature-cards">
-        <div class="feature-card" data-feature="qa"><div class="feature-card-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></div><div class="feature-card-text">Paper Q&A</div></div>
-        <div class="feature-card" data-feature="idea_novelty"><div class="feature-card-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 14 18.469V19a2 2 0 1 1-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg></div><div class="feature-card-text">Idea Novelty</div></div>
-        <div class="feature-card" data-feature="trend"><div class="feature-card-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div class="feature-card-text">Trend Analysis</div></div>
-        <div class="feature-card" data-feature="cross_domain"><div class="feature-card-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div><div class="feature-card-text">Cross-Domain</div></div>
-        <div class="feature-card" data-feature="study_plan"><div class="feature-card-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg></div><div class="feature-card-text">Study Plan</div></div>
-        <div class="feature-card" data-feature="paper_reading"><div class="feature-card-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></div><div class="feature-card-text">Paper Reading</div></div>
+        <div class="feature-card" data-feature=""><div class="feature-card-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l3-3 3 2 4-6"/></svg></div><div class="feature-card-text">Dashboard</div></div>
+        <div class="feature-card" data-feature=""><div class="feature-card-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><div class="feature-card-text">Official Benchmark</div></div>
+        <div class="feature-card" data-feature=""><div class="feature-card-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div><div class="feature-card-text">Eval Export</div></div>
       </div>
     `;
     div.querySelectorAll('.feature-card').forEach((el) => {
@@ -650,6 +639,14 @@
   async function streamRequest(text, sessionId, signal, onChunk) {
     const feature = state.selectedFeature;
     const featureCfg = FEATURES[feature] || FEATURES[''];
+    if (!featureCfg.endpoint) {
+      const answer = (
+        'This memory-only build does not expose chat endpoints. ' +
+        'Use the admin dashboard or the official LoCoMo benchmark runner for evaluation.'
+      );
+      onChunk(answer);
+      return { answer, citations: [] };
+    }
     const endpoint = `${API}${featureCfg.endpoint}`;
     let fullText = '';
     let citations = [];
@@ -747,30 +744,7 @@
       user_id: state.userId,
       session_id: sessionId,
     };
-
-    switch (feature) {
-      case 'idea_novelty':
-        return { ...base, idea: text };
-      case 'trend':
-        return { ...base, topic: text };
-      case 'cross_domain':
-        return { ...base, request: text };
-      case 'study_plan':
-        return { ...base, request: text, goal: text };
-      case 'paper_reading': {
-        // Only treat input as paper_id if it looks like a URL, DOI, or arXiv ID
-        const looksLikePaperId = /^(https?:\/\/|doi:|10\.\d{4,}\/|arxiv:?)/i.test(text);
-        return looksLikePaperId
-          ? { ...base, paper_id: text, instruction: text }
-          : { ...base, instruction: text };
-      }
-      case '':
-        return { ...base, query: text };
-      case 'qa':
-        return { ...base, query: text, mode: 'qa' };
-      default:
-        return { ...base, query: text };
-    }
+    return { ...base, query: text };
   }
 
   // ----- Input Helpers -----
@@ -805,7 +779,6 @@
   // ----- Admin Dashboard -----
   const TREND_LINES = [
     { key: 'avg_overall_score',        label: 'Overall',  colorDark: '#00e5a0', colorLight: '#00b882', active: true },
-    { key: 'avg_rag_score',            label: 'RAG',      colorDark: '#4f7cff', colorLight: '#3b6cf5', active: true },
     { key: 'avg_memory_score',         label: 'Memory',   colorDark: '#f59e0b', colorLight: '#d97706', active: true },
     { key: 'avg_answer_quality_score', label: 'Answer',   colorDark: '#a855f7', colorLight: '#7c3aed', active: true },
   ];
@@ -938,7 +911,6 @@
       renderTrendLegend();
       renderScoreTrend(trendResp);
       renderByQueryType(onlineResp);
-      renderByStrategy(onlineResp);
       renderMemoryStats(onlineResp);
 
       // Populate user datalist
@@ -961,7 +933,6 @@
 
     $('#stat-total').textContent = total;
     setScoreCard('stat-avg-score', d.avg_overall_score);
-    setScoreCard('stat-rag-score', d.avg_rag_score);
     setScoreCard('stat-memory-score', d.avg_memory_score);
     setScoreCard('stat-answer-quality', d.avg_answer_quality_score);
 
@@ -1379,76 +1350,6 @@
     });
   }
 
-  // --- ③ Strategy Comparison ---
-  function renderByStrategy(resp) {
-    const canvas = $('#strategy-chart');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const byStrategy = (resp.data || {}).by_strategy || {};
-    const entries = Object.entries(byStrategy).sort((a, b) => b[1].avg_overall_score - a[1].avg_overall_score);
-
-    const dpr = window.devicePixelRatio || 1;
-    const cw = getChartWidth(canvas, 320);
-    const barH = 30;
-    const gap = 12;
-    const ch = Math.max(180, entries.length * (barH + gap) + 28);
-    canvas.width = cw * dpr;
-    canvas.height = ch * dpr;
-    canvas.style.width = cw + 'px';
-    canvas.style.height = ch + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    ctx.clearRect(0, 0, cw, ch);
-
-    const cc = canvasColors();
-
-    if (!entries.length) {
-      ctx.font = '13px "DM Sans", sans-serif';
-      ctx.fillStyle = cc.muted;
-      ctx.textAlign = 'center';
-      ctx.fillText('No strategy data', cw / 2, ch / 2);
-      return;
-    }
-
-    ctx.font = '12px "DM Sans", sans-serif';
-    const labelW = clampValue(cw * 0.28, 84, 150);
-    const metaTexts = entries.map(([, info]) => (info.avg_overall_score ?? 0).toFixed(2) + ' • n=' + info.count);
-    const metaW = clampValue(
-      Math.max(...metaTexts.map((text) => ctx.measureText(text).width)) + 8,
-      80,
-      120
-    );
-    const barX = labelW + 16;
-    const barMaxW = Math.max(56, cw - barX - metaW - 12);
-
-    entries.forEach(([strategy, info], i) => {
-      const score = Math.min(Math.max(info.avg_overall_score ?? 0, 0), 1);
-      const y = i * (barH + gap) + 10;
-      const cy = y + barH / 2;
-      const label = truncateCanvasText(ctx, formatAdminLabel(strategy), labelW);
-
-      ctx.fillStyle = cc.track;
-      ctx.beginPath();
-      ctx.roundRect(barX, y + 4, barMaxW, barH - 8, 6);
-      ctx.fill();
-
-      ctx.fillStyle = scoreColor(score);
-      ctx.beginPath();
-      ctx.roundRect(barX, y + 4, barMaxW * score, barH - 8, 6);
-      ctx.fill();
-
-      ctx.fillStyle = cc.secondary;
-      ctx.font = '12px "DM Sans", sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText(label, 0, cy + 4);
-
-      ctx.fillStyle = cc.primary;
-      ctx.font = '11px "DM Sans", sans-serif';
-      ctx.textAlign = 'right';
-      ctx.fillText(metaTexts[i], cw, cy + 4);
-    });
-  }
-
   // --- ③ Memory Metrics ---
   function renderMemoryStats(resp) {
     const container = $('#memory-stats');
@@ -1483,7 +1384,6 @@
     tbody.innerHTML = '';
     data.forEach((d) => {
       const overall = d.overall_score;
-      const rag = d.rag_score ?? 0;
       const memory = d.memory_score;
       const answer = d.answer_quality_score;
 
@@ -1495,7 +1395,6 @@
         <td class="query-text" title="${escapeHtml(d.query || '')}">${escapeHtml((d.query || '').substring(0, 60))}</td>
         <td>${escapeHtml(d.query_type || '--')}</td>
         <td>${scoreBadge(overall)}</td>
-        <td>${scoreBadge(rag)}</td>
         <td>${scoreBadge(memory)}</td>
         <td>${scoreBadge(answer)}</td>
         <td>${escapeHtml(formatTime(d.created_at))}</td>
@@ -1506,7 +1405,7 @@
       expandRow.className = 'low-score-expand';
       expandRow.style.display = 'none';
       const expandCell = document.createElement('td');
-      expandCell.colSpan = 8;
+      expandCell.colSpan = 7;
       expandCell.innerHTML = `<div class="expand-content" id="detail-${escapeHtml(d.request_id)}"><div class="dim-loading">Loading...</div></div>`;
       expandRow.appendChild(expandCell);
 
@@ -1567,16 +1466,10 @@
   function renderDetailSections(container, evalData, eventsData, diagData, memoryData) {
     const eh = evalData.execution_health || {};
     const rt = evalData.runtime_metrics || {};
-    const ragM = evalData.rag_metrics || {};
-    const ragEvents = (eventsData.rag_events || []);
     const memRun = (memoryData && memoryData.run) || {};
     const retrievalEvent = (memoryData && memoryData.retrieval_event) || {};
     const extractionEvent = (memoryData && memoryData.extraction_event) || {};
     const hasMemoryV2Data = Boolean(memoryData && (memoryData.run || memoryData.retrieval_event || memoryData.extraction_event));
-
-    // Determine if RAG section should show: has events OR has rag_metrics with strategy_used
-    const hasRag = ragEvents.length > 0 || (ragM.strategy && ragM.strategy !== '');
-    const emptyRetrieval = hasRag && (ragM.empty_retrieval_rate >= 1 || (ragM.returned_chunks_count === 0 && ragEvents.length > 0));
 
     let html = '';
 
@@ -1585,9 +1478,6 @@
     html += '<span class="dim-nav-item dim-nav-req" data-dim="dim-sec-req">Request</span>';
     if (hasMemoryV2Data) {
       html += '<span class="dim-nav-item dim-nav-mem" data-dim="dim-sec-mem">Memory</span>';
-    }
-    if (hasRag) {
-      html += '<span class="dim-nav-item dim-nav-rag" data-dim="dim-sec-rag">RAG' + (emptyRetrieval ? ' (Empty)' : '') + '</span>';
     }
     html += '<span class="dim-nav-item dim-nav-eval" data-dim="dim-sec-eval">Evaluation</span>';
     html += '</div>';
@@ -1602,7 +1492,6 @@
       { label: 'Total Tokens', value: rt.total_tokens, fmt: 'tokens' },
       { label: 'Overall Score', value: evalData.overall_score, fmt: 'score' },
       { label: 'Answer Quality', value: evalData.answer_quality_score, fmt: 'score' },
-      { label: 'Faithfulness', value: evalData.faithfulness_score, fmt: 'score' },
       { label: 'Has Error', value: eh.has_error, fmt: 'bool' },
       { label: 'Has Retry', value: eh.has_retry, fmt: 'bool' },
       { label: 'Has Fallback', value: eh.has_fallback, fmt: 'bool' },
@@ -1662,30 +1551,7 @@
       html += '</div></div>';
     }
 
-    // --- Dimension 3: RAG Data (conditional, refined) ---
-    if (hasRag) {
-      const ragMetrics = [
-        { label: 'RAG Score', value: ragM.rag_score, fmt: 'score' },
-        { label: 'Retrieval Latency', value: ragM.retrieval_latency_ms, fmt: 'ms' },
-        { label: 'Strategy', value: ragM.strategy, fmt: 'text' },
-        { label: 'Caller Agent', value: ragM.caller_agent, fmt: 'text' },
-        { label: 'Faithfulness', value: ragM.faithfulness, fmt: 'score' },
-        { label: 'Answer Relevancy', value: ragM.answer_relevancy, fmt: 'score' },
-        { label: 'Context Precision', value: ragM.context_precision, fmt: 'score' },
-        { label: 'Context Recall', value: ragM.context_recall, fmt: 'score' },
-        { label: 'Noise Sensitivity', value: ragM.noise_sensitivity, fmt: 'score' },
-        { label: 'Semantic Similarity', value: ragM.semantic_similarity, fmt: 'score' },
-        { label: 'Redundancy', value: ragM.redundancy, fmt: 'score' },
-        { label: 'Completeness', value: ragM.completeness, fmt: 'score' },
-      ];
-      const ragLabel = 'RAG Data' + (emptyRetrieval ? ' <span class="dim-tag dim-tag-empty">Empty Retrieval</span>' : '');
-      html += '<div class="dim-section" id="dim-sec-rag">'
-        + '<div class="dim-header dim-rag" data-dim-toggle="dim-sec-rag"><span class="dim-toggle">&#9660;</span>' + ragLabel + '</div>'
-        + '<div class="dim-body">' + renderDimGrid(ragMetrics);
-      html += '</div></div>';
-    }
-
-    // --- Dimension 4: Evaluation ---
+    // --- Dimension 3: Evaluation ---
     const _diag = diagData || {};
     const issues = (_diag.issues || []);
     const strengths = (_diag.strengths || []);

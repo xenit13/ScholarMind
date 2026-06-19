@@ -9,14 +9,6 @@ import yaml
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from scholar_mind.rag.top_k import (
-    CROSS_DOMAIN_CANDIDATE_TOP_K,
-    FINAL_CITATION_TOP_K,
-    HYBRID_CANDIDATE_MULTIPLIER,
-    IDEA_EVIDENCE_TOP_K,
-    RAG_EVAL_CONTEXT_TOP_K,
-)
-
 
 def _looks_like_project_root(path: Path) -> bool:
     return (path / "pyproject.toml").exists() and (path / "config").is_dir()
@@ -66,7 +58,6 @@ class Settings(BaseSettings):
     app_name: str = "ScholarMind"
     environment: str = "development"
     log_level: str = "INFO"
-    bootstrap_sample_data: bool = True
 
     database_url: str = "sqlite:///data/sqlite/scholar_mind.db"
     checkpoint_database_url: str = "sqlite:///data/sqlite/checkpoints.db"
@@ -89,21 +80,7 @@ class Settings(BaseSettings):
     embedding_base_url: str | None = None
     embedding_api_key: str | None = None
 
-    reranker_provider: str = "local"
-    reranker_model: str = "bge-reranker-v2-m3"
-    reranker_enabled: bool = False
-    reranker_base_url: str | None = None
-    reranker_api_key: str | None = None
-    reranker_request_timeout_seconds: float = 10.0
-
     default_user_id: str = "local-user"
-    default_rag_strategy: str = "hybrid"
-    default_top_k: int = FINAL_CITATION_TOP_K
-    final_citation_top_k: int = FINAL_CITATION_TOP_K
-    idea_evidence_top_k: int = IDEA_EVIDENCE_TOP_K
-    cross_domain_candidate_top_k: int = CROSS_DOMAIN_CANDIDATE_TOP_K
-    hybrid_candidate_multiplier: int = HYBRID_CANDIDATE_MULTIPLIER
-    rag_eval_context_top_k: int = RAG_EVAL_CONTEXT_TOP_K
     message_context_window_tokens: int = 32768
     message_compact_threshold_ratio: float = 0.75
     memory_top_k: int = 5
@@ -122,24 +99,12 @@ class Settings(BaseSettings):
     memory_consistency_audit_min_confidence: float = Field(default=0.85, ge=0.0, le=1.0)
     memory_consistency_audit_batch_size: int = Field(default=500, ge=1)
 
-    papers_seed_path: str = "data/processed/sample_papers.json"
     log_dir: str = "data/message_logs"
     memory_root_dir: str = "data/memory"
     eval_root_dir: str = "data/eval"
-    raw_data_dir: str = "data/raw"
-    processed_data_dir: str = "data/processed"
     prompt_dir: str = "config/prompts"
 
-    # Request audit and RAG evaluation settings (Document 23)
     eval_enabled: bool = True
-
-    rag_eval_enabled: bool = True
-    rag_eval_llm_model: str | None = None
-    rag_eval_llm_max_tokens: int = Field(default=4096, ge=512)
-    rag_eval_embedding_model: str | None = None
-    rag_eval_redundancy_similarity_threshold: float = Field(default=0.90, ge=0.0, le=1.0)
-    rag_eval_default_dataset: str = "rag_eval_v2"
-    rag_eval_dataset_path: str = "data/eval/rag_eval_v2.jsonl"
 
     @property
     def root_dir(self) -> Path:

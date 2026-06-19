@@ -45,7 +45,6 @@ CONCRETE_MEMORY_TYPES = {
     "goal",
     "workflow",
     "project_constraint",
-    "paper_read",
     "feedback",
 }
 logger = logging.getLogger(__name__)

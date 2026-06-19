@@ -1,8 +1,0 @@
-retrieval:
-  default_strategy: hybrid
-  # Final result count; hybrid expands candidate retrieval by hybrid_candidate_multiplier.
-  top_k: 4
-  hybrid_candidate_multiplier: 4
-  dense_vector_name: dense
-  sparse_vector_name: sparse
-  rerank_top_n: 20

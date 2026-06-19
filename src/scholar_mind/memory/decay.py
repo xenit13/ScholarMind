@@ -144,7 +144,6 @@ def default_decay_parameters(memory_type: str | MemoryType, source: str) -> tupl
         MemoryType.RESEARCH_INTEREST.value,
         MemoryType.GOAL.value,
         MemoryType.WORKFLOW.value,
-        MemoryType.PAPER_READ.value,
     }:
         return 0.03, 0.3
     return 0.06, 0.2

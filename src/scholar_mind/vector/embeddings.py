@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import httpx
 from typing import Protocol
+
+import httpx
 
 try:
     from langchain_openai import OpenAIEmbeddings

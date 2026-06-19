@@ -4,7 +4,7 @@ import httpx
 
 from scholar_mind.config.settings import Settings
 from scholar_mind.models.factory import build_embedding_service
-from scholar_mind.rag.embeddings import OpenAICompatibleEmbeddingService, RemoteEmbeddingService
+from scholar_mind.vector.embeddings import OpenAICompatibleEmbeddingService, RemoteEmbeddingService
 
 
 def test_remote_embedding_service_uses_http_embeddings_payload(monkeypatch):
