@@ -89,3 +89,10 @@ def test_frontend_does_not_reintroduce_removed_query_type_class_name():
     app_js = Path("static/js/app.js").read_text(encoding="utf-8")
 
     assert "renderByQueryType" not in app_js
+
+
+def test_frontend_default_chat_uses_daily_chat_stream_endpoint():
+    app_js = Path("static/js/app.js").read_text(encoding="utf-8")
+
+    assert "'': { label: 'Chat', endpoint: '/chat/stream' }" in app_js
+    assert "This memory-only build does not expose chat endpoints" not in app_js

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from scholar_mind.api.routes.chat import router as chat_router
 from scholar_mind.api.routes.eval import router as eval_router
 from scholar_mind.api.routes.health import router as health_router
 from scholar_mind.api.routes.sessions import router as sessions_router
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(sessions_router)
+    app.include_router(chat_router)
     app.include_router(eval_router)
     app.include_router(health_router)
 

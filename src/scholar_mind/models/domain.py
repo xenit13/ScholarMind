@@ -168,6 +168,21 @@ class SessionCreateRequest(BaseModel):
     user_id: str
 
 
+class DailyChatRequest(BaseModel):
+    user_id: str
+    query: str = Field(min_length=1)
+    session_id: str | None = None
+
+
+class DailyChatResponse(BaseModel):
+    answer: str
+    session_id: str
+    request_id: str
+    memory_hit_count: int = 0
+    memory_notices: list[str] = Field(default_factory=list)
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+
+
 T = TypeVar("T")
 
 

@@ -254,6 +254,7 @@ def test_asgi_exposes_memory_only_routes():
     route_paths = {getattr(route, "path", "") for route in app.routes}
 
     required_paths = {
+        "/api/v1/chat/stream",
         "/api/v1/health",
         "/api/v1/eval/memory/batches/{batch_id}",
     }

@@ -29,7 +29,7 @@
   const STORAGE_QUOTA_MB = 4;  // stay under 4MB to avoid 5MB browser limit
   const PERSISTENT_SESSION_FEATURES = new Set();
   const FEATURES = {
-    '': { label: 'Memory Eval', endpoint: null },
+    '': { label: 'Chat', endpoint: '/chat/stream' },
   };
 
   // ----- DOM refs -----
@@ -641,8 +641,7 @@
     const featureCfg = FEATURES[feature] || FEATURES[''];
     if (!featureCfg.endpoint) {
       const answer = (
-        'This memory-only build does not expose chat endpoints. ' +
-        'Use the admin dashboard or the official LoCoMo benchmark runner for evaluation.'
+        'No chat endpoint is configured.'
       );
       onChunk(answer);
       return { answer, citations: [] };

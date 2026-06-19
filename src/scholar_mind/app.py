@@ -9,6 +9,7 @@ from scholar_mind.memory.consistency_audit import MemoryConsistencyAuditor
 from scholar_mind.memory.manager import MemoryManager
 from scholar_mind.memory.repository import MemoryRepository
 from scholar_mind.models.factory import build_chat_models, build_embedding_service
+from scholar_mind.services.chat import DailyChatService
 from scholar_mind.services.memory_eval_v2 import MemoryEvalServiceV2, MemoryEvalV2Repository
 from scholar_mind.services.memory_management import MemoryManagementService
 from scholar_mind.services.repositories import (
@@ -30,6 +31,7 @@ class AppContainer:
     embedder: EmbeddingService
     index: QdrantIndex
     memory_manager: MemoryManager
+    chat_service: DailyChatService
     memory_consistency_auditor: MemoryConsistencyAuditor | None
     memory_management_service: MemoryManagementService | None
     memory_eval_v2_service: MemoryEvalServiceV2
@@ -62,6 +64,12 @@ def build_container(settings: Settings | None = None) -> AppContainer:
         metrics_repository=metrics_repository,
         memory_eval_v2_repository=memory_eval_v2_repository,
         memory_repository=memory_repository,
+    )
+    chat_service = DailyChatService(
+        settings=app_settings,
+        session_repository=session_repository,
+        memory_manager=memory_manager,
+        llm=chat_models.get("light") or chat_models.get("reasoning"),
     )
     memory_management_service = (
         MemoryManagementService(
@@ -103,6 +111,7 @@ def build_container(settings: Settings | None = None) -> AppContainer:
         embedder=embedder,
         index=index,
         memory_manager=memory_manager,
+        chat_service=chat_service,
         memory_consistency_auditor=memory_consistency_auditor,
         memory_management_service=memory_management_service,
         memory_eval_v2_service=memory_eval_v2_service,
