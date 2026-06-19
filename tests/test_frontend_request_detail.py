@@ -83,3 +83,9 @@ def test_frontend_does_not_expose_removed_research_workflows():
     present = sorted(snippet for snippet in forbidden_snippets if snippet in combined)
 
     assert present == []
+
+
+def test_frontend_does_not_reintroduce_removed_query_type_class_name():
+    app_js = Path("static/js/app.js").read_text(encoding="utf-8")
+
+    assert "renderByQueryType" not in app_js

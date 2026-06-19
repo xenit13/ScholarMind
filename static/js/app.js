@@ -75,7 +75,7 @@
         if (state.adminMode && state._lastTrendResp) {
           renderScoreTrend(state._lastTrendResp);
           if (state._lastOnlineResp) {
-            renderByQueryType(state._lastOnlineResp);
+            renderByReportType(state._lastOnlineResp);
           }
         }
       }, 200);
@@ -189,7 +189,7 @@
         if (state.adminMode && state._lastTrendResp) {
           renderScoreTrend(state._lastTrendResp);
           if (state._lastOnlineResp) {
-            renderByQueryType(state._lastOnlineResp);
+            renderByReportType(state._lastOnlineResp);
           }
         }
       });
@@ -910,7 +910,7 @@
       renderAdminStats(onlineResp);
       renderTrendLegend();
       renderScoreTrend(trendResp);
-      renderByQueryType(onlineResp);
+      renderByReportType(onlineResp);
       renderMemoryStats(onlineResp);
 
       // Populate user datalist
@@ -1270,8 +1270,8 @@
     return Object.values(byIdx).sort((a, b) => a._dist - b._dist);
   }
 
-  // --- ② Query Type Distribution ---
-  function renderByQueryType(resp) {
+  // --- ② Request Type Distribution ---
+  function renderByReportType(resp) {
     const canvas = $('#query-type-chart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
