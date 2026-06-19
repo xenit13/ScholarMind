@@ -7,6 +7,7 @@ from typing import Any
 import typer
 
 from scholar_mind.app import get_container
+from scholar_mind.eval.locomo import run_official_locomo
 
 cli_app = typer.Typer(help="ScholarMind CLI")
 eval_app = typer.Typer(help="Evaluation operations")
@@ -47,6 +48,27 @@ def eval_memory(batch_id: str = typer.Option(..., "--batch-id")):
 def eval_memory_report(report_id: str = typer.Option(..., "--report-id")):
     container = get_container()
     dump(container.memory_eval_v2_service.get_report(report_id))
+
+
+@eval_app.command("locomo")
+def eval_locomo(
+    data_file: str = typer.Option(..., "--data-file"),
+    out_file: str = typer.Option(..., "--out-file"),
+    model_key: str = typer.Option("scholarmind_memory", "--model-key"),
+    limit: int | None = typer.Option(None, "--limit", min=1),
+    no_ingest: bool = typer.Option(False, "--no-ingest"),
+):
+    container = get_container()
+    dump(
+        run_official_locomo(
+            data_file=data_file,
+            out_file=out_file,
+            memory_manager=container.memory_manager,
+            model_key=model_key,
+            limit=limit,
+            ingest=not no_ingest,
+        )
+    )
 
 
 @eval_app.command("memory-library-export")

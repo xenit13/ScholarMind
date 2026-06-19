@@ -1,6 +1,6 @@
 # ScholarMind Memory Eval
 
-This `memory_eval` branch keeps ScholarMind's long-term memory system and removes the paper-centered research assistant surface. It is intended as a smaller runtime for memory extraction, retrieval, management, and offline memory evaluation, with later LoCoMo-style benchmark adapters built on top.
+This `memory_eval` branch keeps ScholarMind's long-term memory system and removes the paper-centered research assistant surface. It is intended as a smaller runtime for memory extraction, retrieval, management, offline memory evaluation, and the official LoCoMo question-answering benchmark format.
 
 ## Features
 
@@ -8,6 +8,7 @@ This `memory_eval` branch keeps ScholarMind's long-term memory system and remove
 - Pending-memory buffering and memory admission controls.
 - Memory consistency audit and memory library duplicate/conflict audit.
 - Memory V2 request-level evaluation from recorded retrieval/extraction traces.
+- Official LoCoMo `locomo10.json` loader and prediction export.
 - SQLite persistence and Qdrant vector storage for memory records.
 - Configurable OpenAI-compatible chat and embedding providers.
 
@@ -18,12 +19,13 @@ src/scholar_mind/
   api/          FastAPI shell, health, sessions, and memory evaluation routes
   config/       Settings loading from YAML, .env, and environment variables
   db/           SQLAlchemy models, sessions, and database initialization
+  eval/         Answer quality helpers, Memory V2 evaluation, and LoCoMo runner
   memory/       Memory extraction, retrieval, operations, decay, and persistence
   models/       Domain models and model provider factories
-  rag/          Embedding and Qdrant index infrastructure retained for memory vectors
   services/     Memory evaluation, memory management, and repository helpers
-  utils/        Message, streaming, sample data, and token helpers retained by memory code
-config/         Runtime configuration and memory prompt templates
+  utils/        Message, streaming, and token helpers retained by memory code
+  vector/       Embedding and Qdrant index infrastructure for memory vectors
+config/         Runtime and memory configuration
 data/           Local SQLite, Qdrant, Redis, logs, memory, and evaluation artifacts
 tests/          Memory, settings, API shell, and evaluation tests
 ```
@@ -82,6 +84,7 @@ The package installs a `scholar` command. This branch exposes memory evaluation 
 uv run scholar eval memory-export --from-request-id <request_id> --limit 1
 uv run scholar eval memory --batch-id <batch_id>
 uv run scholar eval memory-report --report-id <report_id>
+uv run scholar eval locomo --data-file <locomo10.json> --out-file <predictions.json>
 uv run scholar eval memory-library-export
 uv run scholar eval memory-library --batch-id <batch_id>
 uv run scholar eval memory-library-report --report-id <report_id>
@@ -108,16 +111,24 @@ Memory V2 is an offline evaluation flow:
 
 The generated report includes memory hit@k, relevant recall/precision, first relevant rank, stale retrieval rate, answer relevance, extraction precision, and the combined memory score.
 
-## LoCoMo-Style Adaptation
+## Official LoCoMo
 
-This branch is prepared for LoCoMo-style long conversational memory testing. A benchmark adapter should:
+This branch targets the official LoCoMo release format, not a business-specific adaptation. The official file is a JSON list where each sample has `sample_id`, `conversation`, and annotated `qa` items. The runner preserves the official questions and adds a prediction key to each QA item:
 
-- import each benchmark case as a distinct `user_id`;
-- preserve source provenance such as `sample_id`, `session_id`, and dialog/evidence ids in memory metadata;
-- issue benchmark questions through a memory-backed answering layer;
-- export predictions and retrieved provenance ids for official or business-specific answer and evidence scoring.
+```bash
+uv run scholar eval locomo \
+  --data-file /path/to/locomo10.json \
+  --out-file data/eval/locomo_predictions.json \
+  --model-key scholarmind_memory
+```
 
-The existing Memory V2 score should be treated as a diagnostic metric, not as a replacement for official LoCoMo answer scoring.
+The output keeps each official `qa` object unchanged and adds:
+
+- `scholarmind_memory_prediction`
+- `scholarmind_memory_memory_context`
+- `scholarmind_memory_memory_hit_count`
+
+Use the official LoCoMo scoring workflow against the generated prediction file. The existing Memory V2 score remains a diagnostic metric and is not a replacement for official LoCoMo answer scoring.
 
 ## Configuration
 

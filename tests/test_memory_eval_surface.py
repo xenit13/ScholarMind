@@ -229,6 +229,7 @@ def test_eval_cli_exposes_only_memory_commands():
     assert result.exit_code == 0
 
     required_commands = [
+        "locomo",
         "memory",
         "memory-consistency-audit",
         "memory-export",
