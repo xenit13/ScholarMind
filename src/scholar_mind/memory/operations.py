@@ -12,7 +12,6 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from scholar_mind.agents.common import invoke_structured_output_once
 from scholar_mind.memory.decay import default_decay_parameters
 from scholar_mind.memory.discrete import (
     DISCRETE_CONFLICT_MIN_CONFIDENCE,
@@ -30,6 +29,7 @@ from scholar_mind.models.domain import (
     MemoryStatus,
     StructuredMemoryRecord,
 )
+from scholar_mind.models.structured_output import invoke_structured_output_once
 
 LOW_CONFIDENCE_THRESHOLD = 0.5
 EMBEDDING_AUTO_MATCH_THRESHOLD = 0.82

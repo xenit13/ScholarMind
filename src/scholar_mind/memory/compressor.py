@@ -5,10 +5,10 @@ from math import ceil
 
 from langchain_core.messages import BaseMessage, SystemMessage
 
-from scholar_mind.agents.common import empty_usage, invoke_structured_output
-from scholar_mind.eval.context import get_eval_context, record_memory_event
+from scholar_mind.memory.context import get_memory_context, record_memory_event
 from scholar_mind.models.domain import CompressionOutput
 from scholar_mind.models.eval_models import MemoryCallEvent, MemoryOperation
+from scholar_mind.models.structured_output import empty_usage, invoke_structured_output
 from scholar_mind.utils.messages import serialize_messages
 
 
@@ -55,7 +55,7 @@ class MessageCompressor:
         compressed_messages = [SystemMessage(content=summary)] + recent
         compressed_tokens = self._estimate_messages_tokens(compressed_messages)
 
-        ctx = get_eval_context()
+        ctx = get_memory_context()
         if ctx is not None:
             record_memory_event(
                 MemoryCallEvent(

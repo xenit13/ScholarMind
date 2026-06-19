@@ -8,8 +8,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from scholar_mind.agents.common import empty_usage, invoke_structured_output
 from scholar_mind.models.domain import MemoryCandidate
+from scholar_mind.models.structured_output import empty_usage, invoke_structured_output
 
 
 class MemoryAdmissionAction(StrEnum):

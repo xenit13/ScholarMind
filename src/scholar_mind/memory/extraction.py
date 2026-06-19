@@ -6,14 +6,14 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from scholar_mind.agents.common import (
+from scholar_mind.memory.discrete import normalize_discrete_structured
+from scholar_mind.models.domain import MemoryCandidate, MemoryCandidateExtractionOutput
+from scholar_mind.models.structured_output import (
     extract_json_candidate,
     invoke_structured_output,
     merge_usage,
     raw_output_text,
 )
-from scholar_mind.memory.discrete import normalize_discrete_structured
-from scholar_mind.models.domain import MemoryCandidate, MemoryCandidateExtractionOutput
 from scholar_mind.utils.messages import deserialize_messages
 
 MAX_CANDIDATES_PER_ROUND = 5

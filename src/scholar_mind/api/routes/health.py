@@ -13,7 +13,8 @@ router = APIRouter(prefix="/api/v1", tags=["health"])
 @router.get("/health")
 async def health(container: Annotated[object, Depends(container_dep)]):
     started = perf_counter()
-    llm_available = any(container.orchestrator.chat_models.values())
+    memory_manager = getattr(container, "memory_manager", None)
+    llm_available = getattr(memory_manager, "llm", None) is not None
     return success_response(
         {
             "status": "healthy",
@@ -21,7 +22,7 @@ async def health(container: Annotated[object, Depends(container_dep)]):
                 "qdrant": "connected",
                 "sqlite": "connected",
                 "llm": "available" if llm_available else "fallback",
-                "celery": "configured",
+                "memory": "configured" if memory_manager is not None else "unavailable",
             },
             "stats": container.metrics_repository.health_stats(),
         },

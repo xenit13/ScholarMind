@@ -3,91 +3,23 @@ from __future__ import annotations
 import csv
 import io
 import json as json_lib
-import logging
 from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from scholar_mind.api.deps import container_dep, success_response
-from scholar_mind.models.rag_eval_models import RagEvalRunRequest
 
 router = APIRouter(prefix="/api/v1/eval", tags=["eval"])
 CONTAINER_DEP = Depends(container_dep)
-logger = logging.getLogger(__name__)
-
-
-@router.post("/rag/runs")
-async def create_rag_eval_run(request: RagEvalRunRequest, container=CONTAINER_DEP):
-    started = perf_counter()
-    service = _get_rag_eval_service(container)
-    result = await service.create_run(request)
-    return success_response(result.model_dump(mode="json"), started)
-
-
-@router.get("/rag/runs")
-async def list_rag_eval_runs(
-    container=CONTAINER_DEP,
-    limit: int = Query(default=20, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-):
-    started = perf_counter()
-    service = _get_rag_eval_service(container)
-    result = [
-        item.model_dump(mode="json")
-        for item in service.list_runs(limit=limit, offset=offset)
-    ]
-    return success_response(result, started)
-
-
-@router.get("/rag/runs/{run_id}")
-async def get_rag_eval_run(run_id: str, container=CONTAINER_DEP):
-    started = perf_counter()
-    service = _get_rag_eval_service(container)
-    result = service.get_run(run_id)
-    if result is None:
-        raise HTTPException(status_code=404, detail="RAG_EVAL_RUN_NOT_FOUND")
-    return success_response(result.model_dump(mode="json"), started)
-
-
-@router.get("/rag/runs/{run_id}/results")
-async def list_rag_eval_results(
-    run_id: str,
-    container=CONTAINER_DEP,
-    limit: int = Query(default=200, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
-):
-    started = perf_counter()
-    service = _get_rag_eval_service(container)
-    if service.get_run(run_id) is None:
-        raise HTTPException(status_code=404, detail="RAG_EVAL_RUN_NOT_FOUND")
-    result = [
-        item.model_dump(mode="json")
-        for item in service.list_results(run_id, limit=limit, offset=offset)
-    ]
-    return success_response(result, started)
-
-
-@router.get("/rag/cases")
-async def list_rag_eval_cases(
-    container=CONTAINER_DEP,
-    limit: int | None = Query(default=None, ge=1, le=1000),
-):
-    started = perf_counter()
-    service = _get_rag_eval_service(container)
-    result = [item.model_dump(mode="json") for item in service.list_cases(limit=limit)]
-    return success_response(result, started)
 
 
 @router.get("/requests/{request_id}")
 async def get_request_eval(
     request_id: str,
     container=CONTAINER_DEP,
-    rescore: bool = Query(default=False),
 ):
     started = perf_counter()
-    if rescore:
-        await _score_request_rag_metrics_if_available(container, request_id, force=True)
     repo = _get_online_eval_repo(container)
     result = repo.get_request_eval(request_id)
     if result is None:
@@ -99,11 +31,8 @@ async def get_request_eval(
 async def get_request_diagnosis(
     request_id: str,
     container=CONTAINER_DEP,
-    rescore: bool = Query(default=False),
 ):
     started = perf_counter()
-    if rescore:
-        await _score_request_rag_metrics_if_available(container, request_id, force=True)
     repo = _get_online_eval_repo(container)
     result = repo.get_request_diagnosis(request_id)
     if result is None:
@@ -235,28 +164,6 @@ async def get_memory_eval_request(request_id: str, container=CONTAINER_DEP):
     if result is None:
         raise HTTPException(status_code=404, detail="MEMORY_EVAL_REQUEST_NOT_FOUND")
     return success_response(result, started)
-
-
-def _get_rag_eval_service(container: Any):
-    service = getattr(container, "rag_eval_service", None)
-    if service is None:
-        raise HTTPException(status_code=503, detail="RAG_EVAL_NOT_AVAILABLE")
-    return service
-
-
-async def _score_request_rag_metrics_if_available(
-    container: Any,
-    request_id: str,
-    *,
-    force: bool = False,
-) -> None:
-    service = getattr(container, "rag_eval_service", None)
-    if service is None:
-        return
-    try:
-        await service.score_online_request_if_annotated(request_id, force=force)
-    except Exception:
-        logger.exception("Online RAG metric scoring failed: request_id=%s", request_id)
 
 
 def _get_online_eval_repo(container: Any):

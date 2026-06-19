@@ -17,7 +17,7 @@ from scholar_mind.api.routes.eval import (
 )
 from scholar_mind.db.models import Base
 from scholar_mind.db.session import init_database
-from scholar_mind.eval.context import finish_eval_context, init_eval_context
+from scholar_mind.memory.context import finish_memory_context, init_memory_context
 from scholar_mind.main import cli_app
 from scholar_mind.memory.manager import MemoryManager
 from scholar_mind.services.memory_eval_v2 import MemoryEvalServiceV2, MemoryEvalV2Repository
@@ -289,7 +289,7 @@ def test_memory_manager_records_v2_retrieval_event(memory_eval_components):
         llm=None,
         memory_eval_v2_repository=memory_eval_components["memory_repo"],
     )
-    ctx = init_eval_context(
+    ctx = init_memory_context(
         request_id="req_mem_event",
         session_id="sess_1",
         user_id="user_1",
@@ -298,7 +298,7 @@ def test_memory_manager_records_v2_retrieval_event(memory_eval_components):
     )
 
     injected_text, hit_count = manager.get_context_sync("user_1", "结合我的偏好回答")
-    finish_eval_context(ctx, {"final_answer": ""})
+    finish_memory_context(ctx, {"final_answer": ""})
 
     event = memory_eval_components["memory_repo"].get_memory_retrieval_event("req_mem_event")
     assert hit_count == 1

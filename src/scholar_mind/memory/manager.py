@@ -10,16 +10,10 @@ from uuid import uuid4
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
-from scholar_mind.agents.common import (
-    extract_json_candidate,
-    invoke_structured_output,
-    merge_usage,
-    raw_output_text,
-)
 from scholar_mind.config.settings import Settings
-from scholar_mind.eval.context import get_eval_context, record_memory_event
 from scholar_mind.memory.admission import MemoryAdmissionAction, MemoryAdmissionPolicy
 from scholar_mind.memory.compressor import MessageCompressor
+from scholar_mind.memory.context import get_memory_context, record_memory_event
 from scholar_mind.memory.decay import MemoryScoreInput, rank_memory_candidates
 from scholar_mind.memory.discrete import format_discrete_memory
 from scholar_mind.memory.extraction import extract_memory_candidates_from_round
@@ -33,6 +27,12 @@ from scholar_mind.models.domain import (
     MemoryStatus,
     MessageLogEntry,
     StructuredMemoryRecord,
+)
+from scholar_mind.models.structured_output import (
+    extract_json_candidate,
+    invoke_structured_output,
+    merge_usage,
+    raw_output_text,
 )
 from scholar_mind.models.eval_models import MemoryCallEvent, MemoryOperation
 from scholar_mind.rag.embeddings import EmbeddingService
@@ -762,7 +762,7 @@ class MemoryManager:
         compression_after_tokens: int | None = None,
     ) -> None:
         """Record a memory event to the current evaluation context."""
-        eval_ctx = get_eval_context()
+        eval_ctx = get_memory_context()
         if eval_ctx is None:
             return
         record_memory_event(
@@ -794,7 +794,7 @@ class MemoryManager:
     ) -> None:
         if self.memory_eval_v2_repository is None:
             return
-        eval_ctx = get_eval_context()
+        eval_ctx = get_memory_context()
         if eval_ctx is None:
             return
         self.memory_eval_v2_repository.save_memory_retrieval_event(

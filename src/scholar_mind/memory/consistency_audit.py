@@ -11,7 +11,6 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from scholar_mind.agents.common import invoke_structured_output_once
 from scholar_mind.memory.discrete import normalize_discrete_structured, parse_discrete_fact
 from scholar_mind.memory.repository import MemoryRepository
 from scholar_mind.models.domain import (
@@ -19,6 +18,7 @@ from scholar_mind.models.domain import (
     MemoryOperationName,
     StructuredMemoryRecord,
 )
+from scholar_mind.models.structured_output import invoke_structured_output_once
 
 logger = logging.getLogger(__name__)
 

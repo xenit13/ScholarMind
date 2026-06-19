@@ -10,9 +10,6 @@ from fastapi.staticfiles import StaticFiles
 
 from scholar_mind.api.routes.eval import router as eval_router
 from scholar_mind.api.routes.health import router as health_router
-from scholar_mind.api.routes.ingest import router as ingest_router
-from scholar_mind.api.routes.papers import router as papers_router
-from scholar_mind.api.routes.research import router as research_router
 from scholar_mind.api.routes.sessions import router as sessions_router
 from scholar_mind.app import get_container
 
@@ -36,11 +33,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(research_router)
-    app.include_router(papers_router)
     app.include_router(sessions_router)
     app.include_router(eval_router)
-    app.include_router(ingest_router)
     app.include_router(health_router)
 
     @app.get("/")
