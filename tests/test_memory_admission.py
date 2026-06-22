@@ -104,6 +104,38 @@ def test_admission_uses_model_decision_when_model_returns_drop():
     assert usage["total_tokens"] == 5
 
 
+def test_admission_allows_locomo_event_without_model_gate():
+    llm = _StructuredOutputLLM(
+        {
+            "parsed": {
+                "action": "DROP",
+                "reason": "The candidate contains health and minor information.",
+                "matched_rules": ["medical", "minor"],
+            },
+            "raw": _RawResult('{"action":"DROP","reason":"blocked"}'),
+            "parsing_error": None,
+        }
+    )
+
+    decision, usage = MemoryAdmissionPolicy().evaluate(
+        _candidate(
+            "D3:14 Melanie said her husband and kids support her mental health.",
+            structured={
+                "schema_version": "locomo_event_v1",
+                "dialog_ids": ["D3:14"],
+                "source_mode": "locomo_benchmark",
+            },
+        ),
+        llm=llm,
+    )
+
+    assert decision.action == MemoryAdmissionAction.WRITE
+    assert decision.reason == "allowed_locomo_benchmark_event"
+    assert decision.matched_rules == []
+    assert usage["total_tokens"] == 0
+    assert llm.prompts == []
+
+
 def test_admission_falls_back_to_rules_when_model_fails():
     llm = _StructuredOutputLLM(
         {

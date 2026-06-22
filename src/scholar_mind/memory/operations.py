@@ -20,6 +20,7 @@ from scholar_mind.memory.discrete import (
     parse_discrete_fact,
     skips_temporal_conflict,
 )
+from scholar_mind.memory.locomo import is_locomo_event_memory, locomo_dialog_ids
 from scholar_mind.memory.repository import MemoryRepository
 from scholar_mind.models.domain import (
     MemoryCandidate,
@@ -129,6 +130,13 @@ class MemoryOperationApplier:
         )
         if discrete_result is not None:
             return discrete_result
+        if is_locomo_event_memory(candidate):
+            return self._apply_locomo_event_candidate(
+                user_id=user_id,
+                candidate=candidate,
+                request_id=request_id,
+                session_id=session_id,
+            )
         match = self._find_matching_record(
             user_id=user_id,
             candidate=candidate,
@@ -193,6 +201,64 @@ class MemoryOperationApplier:
             session_id=session_id,
             reason=reason,
         )
+
+    def _apply_locomo_event_candidate(
+        self,
+        *,
+        user_id: str,
+        candidate: MemoryCandidate,
+        request_id: str | None,
+        session_id: str | None,
+    ) -> MemoryOperationResult:
+        match = self._find_locomo_event_record(user_id=user_id, candidate=candidate)
+        if candidate.confidence < LOW_CONFIDENCE_THRESHOLD:
+            return self._none(
+                user_id=user_id,
+                candidate=candidate,
+                existing=match,
+                request_id=request_id,
+                session_id=session_id,
+                reason="candidate confidence is below threshold",
+            )
+        if match is None:
+            return self._add(
+                user_id=user_id,
+                candidate=candidate,
+                request_id=request_id,
+                session_id=session_id,
+            )
+        if _normalize_memory_text(match.content) == _normalize_memory_text(candidate.content):
+            return self._none(
+                user_id=user_id,
+                candidate=candidate,
+                existing=match,
+                request_id=request_id,
+                session_id=session_id,
+                reason="candidate duplicates existing LoCoMo dialog event",
+            )
+        return self._update(
+            user_id=user_id,
+            candidate=candidate,
+            existing=match,
+            request_id=request_id,
+            session_id=session_id,
+        )
+
+    def _find_locomo_event_record(
+        self,
+        *,
+        user_id: str,
+        candidate: MemoryCandidate,
+    ) -> StructuredMemoryRecord | None:
+        candidate_ids = set(locomo_dialog_ids(candidate))
+        if not candidate_ids:
+            return None
+        for record in self.repository.list_by_status(user_id, MemoryStatus.ACTIVE):
+            if not is_locomo_event_memory(record):
+                continue
+            if candidate_ids == set(locomo_dialog_ids(record)):
+                return record
+        return None
 
     def _add(
         self,

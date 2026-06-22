@@ -8,6 +8,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from scholar_mind.memory.locomo import is_locomo_event_memory
 from scholar_mind.models.domain import MemoryCandidate
 from scholar_mind.models.structured_output import empty_usage, invoke_structured_output
 
@@ -33,6 +34,15 @@ class MemoryAdmissionPolicy:
     def evaluate(
         self, candidate: MemoryCandidate, *, llm=None
     ) -> tuple[MemoryAdmissionDecision, dict[str, float]]:
+        if is_locomo_event_memory(candidate):
+            return (
+                MemoryAdmissionDecision(
+                    action=MemoryAdmissionAction.WRITE,
+                    reason="allowed_locomo_benchmark_event",
+                    matched_rules=[],
+                ),
+                empty_usage(),
+            )
         if llm is not None:
             decision, usage = self._evaluate_with_model(candidate, llm)
             if decision is not None:

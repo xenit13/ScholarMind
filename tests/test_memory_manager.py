@@ -97,6 +97,14 @@ def _discrete_structured() -> dict:
     }
 
 
+def _locomo_structured(dialog_ids: list[str]) -> dict:
+    return {
+        "schema_version": "locomo_event_v1",
+        "source_mode": "locomo_benchmark",
+        "dialog_ids": dialog_ids,
+    }
+
+
 def test_memory_manager_recovers_alias_memory_payload(tmp_path):
     llm = _StructuredOutputLLM(
         [
@@ -361,6 +369,148 @@ def test_memory_manager_reranks_structured_memory_and_records_injected_access(tm
     assert stored_old.access_count == 0
     assert stored_recent.access_count == 1
     assert stored_recent.last_accessed_at is not None
+
+
+def test_memory_manager_keeps_locomo_chunk_hits_scoped_to_ranked_chunk(tmp_path):
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'memory.db'}",
+        memory_root_dir=str(tmp_path / "memories"),
+        log_dir=str(tmp_path / "logs"),
+        qdrant_location=":memory:",
+        memory_top_k=1,
+        memory_min_similarity_score=0.0,
+        memory_min_final_score=0.0,
+        memory_decay_enabled=False,
+    )
+    init_database(settings)
+    repository = MemoryRepository(build_session_factory(settings))
+    now = datetime.now(UTC)
+    chunks = [
+        (
+            "mem_chunk_1",
+            "Session 1 chunk 1: D1:1 Caroline said: event 1. D1:6 Caroline said: event 6.",
+            ["D1:1", "D1:2", "D1:3", "D1:4", "D1:5", "D1:6"],
+        ),
+        (
+            "mem_chunk_2",
+            "Session 1 chunk 2: D1:7 Caroline said: event 7. D1:12 Caroline said: event 12.",
+            ["D1:7", "D1:8", "D1:9", "D1:10", "D1:11", "D1:12"],
+        ),
+        (
+            "mem_chunk_3",
+            "Session 1 chunk 3: D1:13 Caroline said: event 13. D1:18 Caroline said: event 18.",
+            ["D1:13", "D1:14", "D1:15", "D1:16", "D1:17", "D1:18"],
+        ),
+    ]
+    for memory_id, content, dialog_ids in chunks:
+        repository.upsert(
+            StructuredMemoryRecord(
+                memory_id=memory_id,
+                user_id="u1",
+                scope="user",
+                memory_type="interaction_summary",
+                content=content,
+                structured=_locomo_structured(dialog_ids),
+                source="explicit",
+                importance=0.8,
+                confidence=0.9,
+                status="active",
+                created_at=now,
+                updated_at=now,
+                decay_rate=0.01,
+                decay_floor=0.5,
+            )
+        )
+    index = _Index(
+        search_results=[SimpleNamespace(score=0.9, payload={"memory_id": "mem_chunk_2"})]
+    )
+    manager = MemoryManager(
+        settings,
+        index,
+        _Embedder(),
+        llm=None,
+        memory_repository=repository,
+    )
+
+    injected_text, hit_count = manager.get_context_sync("u1", "What happened around event 9?")
+
+    assert hit_count == 1
+    assert injected_text.splitlines() == [
+        "- Session 1 chunk 2: D1:7 Caroline said: event 7. D1:12 Caroline said: event 12.",
+    ]
+    assert repository.get("u1", "mem_chunk_2").access_count == 1
+
+
+def test_memory_manager_expands_locomo_turn_hits_with_containing_chunk(tmp_path):
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'memory.db'}",
+        memory_root_dir=str(tmp_path / "memories"),
+        log_dir=str(tmp_path / "logs"),
+        qdrant_location=":memory:",
+        memory_top_k=1,
+        memory_min_similarity_score=0.0,
+        memory_min_final_score=0.0,
+        memory_decay_enabled=False,
+    )
+    init_database(settings)
+    repository = MemoryRepository(build_session_factory(settings))
+    now = datetime.now(UTC)
+    for memory_id, content, dialog_ids in [
+        (
+            "mem_turn_9",
+            "D1:9 Caroline said: event 9.",
+            ["D1:9"],
+        ),
+        (
+            "mem_chunk_2",
+            "Session 1 chunk 2: D1:7 Caroline said: event 7. D1:12 Caroline said: event 12.",
+            ["D1:7", "D1:8", "D1:9", "D1:10", "D1:11", "D1:12"],
+        ),
+        (
+            "mem_chunk_3",
+            "Session 1 chunk 3: D1:13 Caroline said: event 13. D1:18 Caroline said: event 18.",
+            ["D1:13", "D1:14", "D1:15", "D1:16", "D1:17", "D1:18"],
+        ),
+    ]:
+        repository.upsert(
+            StructuredMemoryRecord(
+                memory_id=memory_id,
+                user_id="u1",
+                scope="user",
+                memory_type="interaction_summary",
+                content=content,
+                structured=_locomo_structured(dialog_ids),
+                source="explicit",
+                importance=0.8,
+                confidence=0.9,
+                status="active",
+                created_at=now,
+                updated_at=now,
+                decay_rate=0.01,
+                decay_floor=0.5,
+            )
+        )
+    index = _Index(
+        search_results=[SimpleNamespace(score=0.9, payload={"memory_id": "mem_turn_9"})]
+    )
+    manager = MemoryManager(
+        settings,
+        index,
+        _Embedder(),
+        llm=None,
+        memory_repository=repository,
+    )
+
+    injected_text, hit_count = manager.get_context_sync("u1", "What happened at event 9?")
+
+    assert hit_count == 2
+    assert injected_text.splitlines() == [
+        "- D1:9 Caroline said: event 9.",
+        "- Session 1 chunk 2: D1:7 Caroline said: event 7. D1:12 Caroline said: event 12.",
+    ]
+    assert repository.get("u1", "mem_turn_9").access_count == 1
+    assert repository.get("u1", "mem_chunk_2").access_count == 1
+    assert repository.get("u1", "mem_chunk_3").access_count == 0
 
 
 def test_memory_manager_decay_disabled_uses_semantic_order(tmp_path):

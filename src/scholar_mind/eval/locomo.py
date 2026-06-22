@@ -40,6 +40,8 @@ class OfficialLocomoSample:
 
 
 _SESSION_RE = re.compile(r"^session_(?P<number>\d+)$")
+_DIALOG_ID_RE = re.compile(r"\bD\d+:\d+\b")
+_SESSION_CHUNK_SIZE = 6
 
 
 def load_official_locomo(data_file: str | Path, *, limit: int | None = None):
@@ -84,6 +86,9 @@ def run_official_locomo(
             )
             qa_row = dict(question.raw)
             qa_row[prediction_key] = answer
+            official_context_ids = _official_dialog_ids(context)
+            if official_context_ids:
+                qa_row[f"{prediction_key}_context"] = official_context_ids
             qa_row[f"{model_key}_memory_context"] = context
             qa_row[f"{model_key}_memory_hit_count"] = hit_count
             qa_rows.append(qa_row)
@@ -169,13 +174,17 @@ def _ingest_sample(memory_manager, sample: OfficialLocomoSample, *, user_id: str
     for turn in sample.turns:
         by_session.setdefault(turn.session_number, []).append(turn)
     for session_number in sorted(by_session):
-        transcript = _session_transcript(by_session[session_number])
+        session_turns = by_session[session_number]
+        transcript = _session_transcript(session_turns)
         memory_manager.log_round(
             user_id=user_id,
             session_id=f"locomo:{sample.sample_id}:session_{session_number}",
             round_index=session_number,
             messages=[HumanMessage(content=transcript)],
-            explicit_memories=None,
+            explicit_memories=[
+                *[_turn_memory(turn) for turn in session_turns],
+                *_session_chunk_memories(session_number, session_turns),
+            ],
         )
     memory_manager.extract_pending_memories(user_id=user_id)
 
@@ -191,7 +200,57 @@ def _session_transcript(turns: list[OfficialLocomoTurn]) -> str:
     return "\n".join(lines)
 
 
+def _turn_memory(turn: OfficialLocomoTurn) -> str:
+    date_part = f"On {turn.timestamp}, " if turn.timestamp else ""
+    speaker_part = f"{turn.speaker} said: " if turn.speaker else ""
+    content = f"{turn.dialog_id} - {date_part}{speaker_part}{turn.text}".strip()
+    if turn.image_caption:
+        content += f" Image caption: {turn.image_caption}"
+    return content
+
+
+def _session_chunk_memories(session_number: int, turns: list[OfficialLocomoTurn]) -> list[str]:
+    if not turns:
+        return []
+    chunks = [
+        turns[index : index + _SESSION_CHUNK_SIZE]
+        for index in range(0, len(turns), _SESSION_CHUNK_SIZE)
+    ]
+    return [
+        _session_memory(
+            session_number=session_number,
+            turns=chunk,
+            chunk_number=index + 1 if len(chunks) > 1 else None,
+        )
+        for index, chunk in enumerate(chunks)
+    ]
+
+
+def _session_memory(
+    *,
+    session_number: int,
+    turns: list[OfficialLocomoTurn],
+    chunk_number: int | None,
+) -> str:
+    timestamp = next((turn.timestamp for turn in turns if turn.timestamp), "")
+    prefix = f"Session {session_number}"
+    if chunk_number is not None:
+        prefix += f" chunk {chunk_number}"
+    if timestamp:
+        prefix += f" on {timestamp}"
+    parts = []
+    for turn in turns:
+        speaker_part = f" {turn.speaker} said:" if turn.speaker else ""
+        content = f"{turn.dialog_id}{speaker_part} {turn.text}".strip()
+        if turn.image_caption:
+            content += f" Image caption: {turn.image_caption}"
+        parts.append(content)
+    return f"{prefix}: " + " ".join(parts)
+
+
 def _answer_question(*, llm, question: str, memory_context: str) -> str:
+    if not memory_context.strip():
+        return "No information available."
     if llm is None or not hasattr(llm, "invoke"):
         return ""
     response = llm.invoke(
@@ -199,8 +258,10 @@ def _answer_question(*, llm, question: str, memory_context: str) -> str:
             SystemMessage(
                 content=(
                     "Answer the official LoCoMo question using the supplied memory "
-                    "context. Preserve dates and names exactly when known. If the "
-                    "context is insufficient, answer with the best concise response."
+                    "context. Preserve dates and names exactly when known. Answer only "
+                    "when the answer is directly stated or unambiguously entailed by "
+                    "the context. If the context is related but not sufficient, "
+                    "answer exactly: No information available."
                 )
             ),
             HumanMessage(
@@ -212,6 +273,17 @@ def _answer_question(*, llm, question: str, memory_context: str) -> str:
         ]
     )
     return str(getattr(response, "content", response)).strip()
+
+
+def _official_dialog_ids(text: str) -> list[str]:
+    seen = set()
+    dialog_ids = []
+    for dialog_id in _DIALOG_ID_RE.findall(text):
+        if dialog_id in seen:
+            continue
+        seen.add(dialog_id)
+        dialog_ids.append(dialog_id)
+    return dialog_ids
 
 
 def _session_sort_key(value: str) -> tuple[int, str]:

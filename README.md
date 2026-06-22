@@ -125,6 +125,7 @@ uv run scholar eval locomo \
 The output keeps each official `qa` object unchanged and adds:
 
 - `scholarmind_memory_prediction`
+- `scholarmind_memory_prediction_context` when retrieved context includes official LoCoMo dialog IDs
 - `scholarmind_memory_memory_context`
 - `scholarmind_memory_memory_hit_count`
 

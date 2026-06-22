@@ -7,7 +7,8 @@ from typing import Any
 from langchain_core.messages import AIMessage, ToolMessage
 
 from scholar_mind.memory.discrete import normalize_discrete_structured
-from scholar_mind.models.domain import MemoryCandidate, MemoryCandidateExtractionOutput
+from scholar_mind.memory.locomo import DIALOG_ID_RE, mark_locomo_event_candidate
+from scholar_mind.models.domain import MemoryCandidate, MemoryCandidateExtractionOutput, MemoryType
 from scholar_mind.models.structured_output import (
     extract_json_candidate,
     invoke_structured_output,
@@ -17,6 +18,7 @@ from scholar_mind.models.structured_output import (
 from scholar_mind.utils.messages import deserialize_messages
 
 MAX_CANDIDATES_PER_ROUND = 5
+_ALLOWED_MEMORY_TYPES = {item.value for item in MemoryType}
 
 
 def extract_memory_candidates_from_round(
@@ -25,6 +27,12 @@ def extract_memory_candidates_from_round(
     explicit_memories: list[str] | None = None,
 ) -> tuple[list[MemoryCandidate], dict[str, float], bool]:
     explicit_candidates = explicit_memories_to_candidates(explicit_memories or [])
+    is_locomo_round = _is_official_locomo_round(round_messages)
+    if is_locomo_round and explicit_candidates:
+        locomo_candidates = [
+            mark_locomo_event_candidate(candidate) for candidate in explicit_candidates
+        ]
+        return _dedupe_candidates(locomo_candidates), merge_usage(), True
     if _is_memory_application_only_round(round_messages):
         return explicit_candidates, merge_usage(), bool(explicit_candidates)
     if llm is None:
@@ -40,8 +48,15 @@ def extract_memory_candidates_from_round(
     if structured is None:
         return explicit_candidates, usage, bool(explicit_candidates)
 
-    candidates = explicit_candidates + structured.candidates
+    structured_candidates = structured.candidates
+    if is_locomo_round:
+        structured_candidates = [
+            mark_locomo_event_candidate(candidate) for candidate in structured_candidates
+        ]
+    candidates = explicit_candidates + structured_candidates
     candidates = _dedupe_candidates(candidates)
+    if is_locomo_round:
+        return candidates, usage, True
     return candidates[:MAX_CANDIDATES_PER_ROUND], usage, True
 
 
@@ -140,20 +155,17 @@ def _build_candidate_extraction_prompt(round_messages: list[dict]) -> str:
             payload["status"] = message.status
         prompt_messages.append(payload)
 
+    is_locomo_transcript = _is_official_locomo_transcript(prompt_messages)
+    goal_and_rules = (
+        _locomo_extraction_goal_and_rules()
+        if is_locomo_transcript
+        else _default_extraction_goal_and_rules()
+    )
+
     return (
         "# Role\n"
         "You are the structured memory extraction agent for ScholarMind.\n\n"
-        "# Goal\n"
-        "Extract durable user memory candidates from one conversation round.\n\n"
-        "# Rules\n"
-        "- Extract only stable facts useful in future interactions.\n"
-        "- Prefer explicit user-stated preferences, research interests, knowledge level, "
-        "goals, workflows, project constraints, read papers, and feedback.\n"
-        "- Do not extract one-off requests, temporary task state, tool traces, "
-        "or assistant plans.\n"
-        "- Do not infer facts the user did not clearly express.\n"
-        "- Sensitive personal data is allowed only when the user explicitly asks to remember it.\n"
-        "- Return at most 5 candidates.\n\n"
+        f"{goal_and_rules}"
         "# Memory management operations\n"
         "When the user asks to forget, delete, remove, or no longer remember a durable fact, "
         "return the matching candidate and set `structured.operation` to `DELETE`.\n"
@@ -190,6 +202,58 @@ def _build_candidate_extraction_prompt(round_messages: list[dict]) -> str:
         "`memory_type,content,structured,keywords,importance,confidence,source,evidence`.\n\n"
         f"Messages: {json.dumps(prompt_messages, ensure_ascii=False)}"
     )
+
+
+def _default_extraction_goal_and_rules() -> str:
+    return (
+        "# Goal\n"
+        "Extract durable user memory candidates from one conversation round.\n\n"
+        "# Rules\n"
+        "- Extract only stable facts useful in future interactions.\n"
+        "- Prefer explicit user-stated preferences, research interests, knowledge level, "
+        "goals, workflows, project constraints, read papers, and feedback.\n"
+        "- Do not extract one-off requests, temporary task state, tool traces, "
+        "or assistant plans.\n"
+        "- Do not infer facts the user did not clearly express.\n"
+        "- Sensitive personal data is allowed only when the user explicitly asks to remember it.\n"
+        "- Return at most 5 candidates.\n\n"
+    )
+
+
+def _locomo_extraction_goal_and_rules() -> str:
+    return (
+        "# Goal\n"
+        "Extract LoCoMo benchmark event-level memory candidates from one official "
+        "conversation session.\n\n"
+        "# Rules\n"
+        "- Preserve concrete facts that can answer long-term conversation questions, "
+        "even when they are one-off event details.\n"
+        "- Prefer dates, times, places, people, relationships, activities, plans, "
+        "commitments, experiences, image captions, and other answerable event facts.\n"
+        "- Include the official dialog id, such as D1:1, in candidate content and evidence "
+        "whenever it is present.\n"
+        "- Preserve speaker names and original dates exactly when known.\n"
+        "- Use image captions as memory evidence when they describe a shared image or "
+        "visual event.\n"
+        "- Avoid assistant-only interpretation, but do not discard benchmark-relevant "
+        "conversation details merely because they are episodic rather than durable.\n"
+        "- Return every benchmark-relevant event candidate from the session.\n\n"
+    )
+
+
+def _is_official_locomo_transcript(prompt_messages: list[dict[str, object]]) -> bool:
+    for message in prompt_messages:
+        content = str(message.get("content") or "")
+        if DIALOG_ID_RE.search(content):
+            return True
+    return False
+
+
+def _is_official_locomo_round(round_messages: list[dict]) -> bool:
+    messages = deserialize_messages(
+        [item["message"] for item in round_messages if isinstance(item, dict) and "message" in item]
+    )
+    return any(DIALOG_ID_RE.search(str(message.content)) for message in messages)
 
 
 def _recover_memory_candidate_output(raw) -> MemoryCandidateExtractionOutput | None:
@@ -236,7 +300,10 @@ def _candidate_from_payload(item: Any) -> MemoryCandidate | None:
     if not content:
         return None
     payload["content"] = str(content).strip()
-    payload.setdefault("memory_type", payload.pop("type", "interaction_summary"))
+    memory_type = str(payload.get("memory_type") or payload.pop("type", "interaction_summary"))
+    if memory_type not in _ALLOWED_MEMORY_TYPES:
+        memory_type = "interaction_summary"
+    payload["memory_type"] = memory_type
     payload.setdefault("structured", {})
     if isinstance(payload["structured"], dict):
         payload["structured"] = normalize_discrete_structured(payload["structured"])

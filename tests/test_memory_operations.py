@@ -104,6 +104,18 @@ def _candidate(
     )
 
 
+def _locomo_candidate(content: str, dialog_ids: list[str]) -> MemoryCandidate:
+    return _candidate(
+        content,
+        memory_type="interaction_summary",
+        structured={
+            "schema_version": "locomo_event_v1",
+            "dialog_ids": dialog_ids,
+            "source_mode": "locomo_benchmark",
+        },
+    )
+
+
 def _discrete_structured(
     value: str,
     polarity: str,
@@ -217,6 +229,99 @@ def test_operation_applier_updates_semantic_match_and_increments_version(tmp_pat
     assert stored.version == 2
     assert events[0].operation == "UPDATE"
     assert events[0].old_record["content"] == "用户偏好简洁回答。"
+
+
+def test_operation_applier_adds_distinct_locomo_dialog_events_without_semantic_update(
+    tmp_path,
+):
+    repository = _repository(tmp_path)
+    applier = MemoryOperationApplier(repository, _Index(), _Embedder())
+
+    first = applier.apply_candidate(
+        user_id="u1",
+        candidate=_locomo_candidate(
+            "D1:1 Caroline went to an LGBTQ support group on 2023-05-07.",
+            ["D1:1"],
+        ),
+        session_id="locomo:conv-26:session_1",
+    )
+    second = applier.apply_candidate(
+        user_id="u1",
+        candidate=_locomo_candidate(
+            "D1:2 Melanie painted a sunrise in 2022.",
+            ["D1:2"],
+        ),
+        session_id="locomo:conv-26:session_1",
+    )
+
+    records = repository.list_active("u1")
+    events = repository.list_operation_events("u1")
+    assert first.operation == "ADD"
+    assert second.operation == "ADD"
+    assert len(records) == 2
+    assert {record.structured["dialog_ids"][0] for record in records} == {"D1:1", "D1:2"}
+    assert [event.operation for event in events] == ["ADD", "ADD"]
+
+
+def test_operation_applier_updates_same_locomo_dialog_event(tmp_path):
+    repository = _repository(tmp_path)
+    applier = MemoryOperationApplier(repository, _Index(), _Embedder())
+
+    first = applier.apply_candidate(
+        user_id="u1",
+        candidate=_locomo_candidate(
+            "D1:1 Caroline went to a support group.",
+            ["D1:1"],
+        ),
+        session_id="locomo:conv-26:session_1",
+    )
+    second = applier.apply_candidate(
+        user_id="u1",
+        candidate=_locomo_candidate(
+            "D1:1 Caroline went to an LGBTQ support group on 2023-05-07.",
+            ["D1:1"],
+        ),
+        session_id="locomo:conv-26:session_1",
+    )
+
+    records = repository.list_active("u1")
+    assert first.operation == "ADD"
+    assert second.operation == "UPDATE"
+    assert second.memory_id == first.memory_id
+    assert len(records) == 1
+    assert records[0].content == "D1:1 Caroline went to an LGBTQ support group on 2023-05-07."
+
+
+def test_operation_applier_keeps_locomo_turn_and_session_chunk_distinct(tmp_path):
+    repository = _repository(tmp_path)
+    applier = MemoryOperationApplier(repository, _Index(), _Embedder())
+
+    turn = applier.apply_candidate(
+        user_id="u1",
+        candidate=_locomo_candidate(
+            "D1:1 Caroline went to a support group.",
+            ["D1:1"],
+        ),
+        session_id="locomo:conv-26:session_1",
+    )
+    chunk = applier.apply_candidate(
+        user_id="u1",
+        candidate=_locomo_candidate(
+            "Session 1: D1:1 Caroline went to a support group. "
+            "D1:2 Melanie painted a sunrise.",
+            ["D1:1", "D1:2"],
+        ),
+        session_id="locomo:conv-26:session_1",
+    )
+
+    records = repository.list_active("u1")
+    assert turn.operation == "ADD"
+    assert chunk.operation == "ADD"
+    assert len(records) == 2
+    assert sorted(record.structured["dialog_ids"] for record in records) == [
+        ["D1:1"],
+        ["D1:1", "D1:2"],
+    ]
 
 
 def test_operation_applier_deletes_semantic_match_without_physical_delete(tmp_path):

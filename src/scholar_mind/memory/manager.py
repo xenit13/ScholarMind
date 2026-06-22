@@ -17,6 +17,11 @@ from scholar_mind.memory.context import get_memory_context, record_memory_event
 from scholar_mind.memory.decay import MemoryScoreInput, rank_memory_candidates
 from scholar_mind.memory.discrete import format_discrete_memory
 from scholar_mind.memory.extraction import extract_memory_candidates_from_round
+from scholar_mind.memory.locomo import (
+    is_locomo_chunk_memory,
+    is_locomo_event_memory,
+    locomo_dialog_range,
+)
 from scholar_mind.memory.operations import MemoryOperationApplier
 from scholar_mind.memory.pending_buffer import PendingContextPayload, PendingConversationBuffer
 from scholar_mind.memory.repository import MemoryRepository
@@ -274,7 +279,11 @@ class MemoryManager:
             access_boost_factor=float(getattr(self.settings, "memory_access_boost_factor", 0.2)),
             access_boost_cap=float(getattr(self.settings, "memory_access_boost_cap", 1.5)),
         )
-        injected_memory_ids = [item.record.memory_id for item in ranked]
+        injected_records = self._expand_structured_context_records(
+            user_id=user_id,
+            ranked_records=[item.record for item in ranked],
+        )
+        injected_memory_ids = [record.memory_id for record in injected_records]
         if not ranked:
             self._record_memory_retrieval_event_v2(
                 user_id=user_id,
@@ -295,8 +304,8 @@ class MemoryManager:
             return "", 0
         self.memory_repository.record_access(user_id, injected_memory_ids)
         lines = [
-            f"- {format_discrete_memory(item.record) or item.record.content}"
-            for item in ranked
+            f"- {format_discrete_memory(record) or record.content}"
+            for record in injected_records
         ]
         injected_text = "\n".join(lines)
         self._record_memory_retrieval_event_v2(
@@ -326,6 +335,47 @@ class MemoryManager:
             source_memory_ids=injected_memory_ids,
         )
         return injected_text, len(lines)
+
+    def _expand_structured_context_records(
+        self,
+        *,
+        user_id: str,
+        ranked_records: list[StructuredMemoryRecord],
+    ) -> list[StructuredMemoryRecord]:
+        if not ranked_records or self.memory_repository is None:
+            return ranked_records
+        if not any(
+            is_locomo_event_memory(record) and not is_locomo_chunk_memory(record)
+            for record in ranked_records
+        ):
+            return ranked_records
+        active_records = self.memory_repository.list_by_status(user_id, MemoryStatus.ACTIVE)
+        expanded: list[StructuredMemoryRecord] = []
+        seen: set[str] = set()
+        locomo_chunks = [
+            record
+            for record in active_records
+            if is_locomo_event_memory(record) and is_locomo_chunk_memory(record)
+        ]
+        for anchor in ranked_records:
+            if anchor.memory_id not in seen:
+                expanded.append(anchor)
+                seen.add(anchor.memory_id)
+            if is_locomo_chunk_memory(anchor):
+                continue
+            anchor_range = locomo_dialog_range(anchor)
+            if anchor_range is None:
+                continue
+            for candidate in locomo_chunks:
+                if candidate.memory_id in seen:
+                    continue
+                candidate_range = locomo_dialog_range(candidate)
+                if candidate_range is None:
+                    continue
+                if _locomo_range_contains_turn(anchor_range, candidate_range):
+                    expanded.append(candidate)
+                    seen.add(candidate.memory_id)
+        return expanded
 
     async def save(
         self, user_id: str, content: str, source: str = "conversation"
@@ -953,6 +1003,17 @@ def _recover_memory_extraction_output(raw) -> MemoryExtractionOutput | None:
 
 def _payload_memory_id(payload: dict) -> str:
     return str(payload.get("memory_id") or payload.get("record_id") or "")
+
+
+def _locomo_range_contains_turn(
+    anchor: tuple[int, int, int],
+    candidate: tuple[int, int, int],
+) -> bool:
+    anchor_session, anchor_start, anchor_end = anchor
+    candidate_session, candidate_start, candidate_end = candidate
+    if anchor_session != candidate_session:
+        return False
+    return anchor_start == anchor_end and candidate_start <= anchor_start <= candidate_end
 
 
 def _round_session_id(round_messages: list[dict]) -> str | None:

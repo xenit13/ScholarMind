@@ -154,6 +154,182 @@ def test_candidate_extraction_prompt_documents_discrete_memory_schema():
     assert "structured.conflict_key" in prompt
 
 
+def test_candidate_extraction_prompt_adds_locomo_event_guidance_for_official_transcript():
+    round_messages = [
+        {
+            "message": serialize_messages(
+                [
+                    HumanMessage(
+                        content=(
+                            "[2023-05-07] Caroline (D1:1): I went to an LGBTQ support "
+                            "group today.\n"
+                            "[2023-05-07] Melanie (D1:2): I painted a sunrise.\n"
+                            "Image caption: a sunrise painting"
+                        )
+                    )
+                ]
+            )[0]
+        }
+    ]
+
+    prompt = _build_candidate_extraction_prompt(round_messages)
+
+    assert "LoCoMo benchmark" in prompt
+    assert "event-level" in prompt
+    assert "dialog id" in prompt
+    assert "dates, times, places" in prompt
+    assert "image captions" in prompt
+    assert "Return every benchmark-relevant event candidate" in prompt
+    assert "Return at most 5 candidates" not in prompt
+    assert "D1:1" in prompt
+
+
+def test_candidate_extraction_prompt_keeps_default_durable_guidance_for_normal_round():
+    round_messages = [
+        {
+            "message": serialize_messages(
+                [HumanMessage(content="以后回答请简洁，但结论带引用")]
+            )[0]
+        }
+    ]
+
+    prompt = _build_candidate_extraction_prompt(round_messages)
+
+    assert "Extract durable user memory candidates" in prompt
+    assert "LoCoMo benchmark" not in prompt
+
+
+def test_extract_memory_candidates_marks_locomo_events_with_dialog_ids():
+    llm = _StructuredOutputLLM(
+        {
+            "parsed": MemoryCandidateExtractionOutput(
+                candidates=[
+                    MemoryCandidate(
+                        memory_type="interaction_summary",
+                        content=(
+                            "D1:1 Caroline went to an LGBTQ support group on "
+                            "2023-05-07."
+                        ),
+                        source="conversation",
+                    )
+                ]
+            ),
+            "raw": _RawResult("", {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}),
+            "parsing_error": None,
+        }
+    )
+    round_messages = [
+        {
+            "message": serialize_messages(
+                [
+                    HumanMessage(
+                        content=(
+                            "[2023-05-07] Caroline (D1:1): I went to an LGBTQ support "
+                            "group today."
+                        )
+                    )
+                ]
+            )[0]
+        }
+    ]
+
+    candidates, _, success = extract_memory_candidates_from_round(llm, round_messages)
+
+    assert success is True
+    assert candidates[0].structured["schema_version"] == "locomo_event_v1"
+    assert candidates[0].structured["dialog_ids"] == ["D1:1"]
+    assert candidates[0].structured["source_mode"] == "locomo_benchmark"
+
+
+def test_extract_memory_candidates_keeps_all_explicit_locomo_events_without_llm():
+    llm = _StructuredOutputLLM(
+        {
+            "parsed": MemoryCandidateExtractionOutput(candidates=[]),
+            "raw": _RawResult("", {"input_tokens": 3, "output_tokens": 2, "total_tokens": 5}),
+            "parsing_error": None,
+        }
+    )
+    round_messages = [
+        {
+            "message": serialize_messages(
+                [
+                    HumanMessage(
+                        content="\n".join(
+                            f"[2023-05-07] Caroline (D1:{idx}): event {idx}"
+                            for idx in range(1, 8)
+                        )
+                    )
+                ]
+            )[0]
+        }
+    ]
+    explicit_memories = [
+        f"D1:{idx} - On 2023-05-07, Caroline said: event {idx}"
+        for idx in range(1, 8)
+    ]
+
+    candidates, usage, success = extract_memory_candidates_from_round(
+        llm,
+        round_messages,
+        explicit_memories=explicit_memories,
+    )
+
+    assert success is True
+    assert usage["total_tokens"] == 0
+    assert len(candidates) == 7
+    assert llm.prompts == []
+    assert candidates[-1].structured["dialog_ids"] == ["D1:7"]
+    assert all(
+        candidate.structured["schema_version"] == "locomo_event_v1"
+        for candidate in candidates
+    )
+
+
+def test_extract_memory_candidates_recovers_invalid_locomo_memory_type():
+    llm = _StructuredOutputLLM(
+        {
+            "parsed": None,
+            "raw": _RawResult(
+                "```json\n"
+                "{"
+                '"candidates": ['
+                "{"
+                '"memory_type": "activity",'
+                '"content": "D1:1 Caroline went to a support group on 2023-05-07.",'
+                '"source": "conversation"'
+                "}"
+                "]"
+                "}\n"
+                "```",
+                {"input_tokens": 9, "output_tokens": 6, "total_tokens": 15},
+            ),
+            "parsing_error": ValueError("invalid enum"),
+        }
+    )
+    round_messages = [
+        {
+            "message": serialize_messages(
+                [
+                    HumanMessage(
+                        content=(
+                            "[2023-05-07] Caroline (D1:1): I went to a support "
+                            "group today."
+                        )
+                    )
+                ]
+            )[0]
+        }
+    ]
+
+    candidates, _, success = extract_memory_candidates_from_round(llm, round_messages)
+
+    assert success is True
+    assert len(candidates) == 1
+    assert candidates[0].memory_type == "interaction_summary"
+    assert candidates[0].structured["schema_version"] == "locomo_event_v1"
+    assert candidates[0].structured["dialog_ids"] == ["D1:1"]
+
+
 def test_extract_memory_candidates_normalizes_discrete_fact_payload():
     llm = _StructuredOutputLLM(
         {
