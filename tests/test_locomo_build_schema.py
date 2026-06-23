@@ -49,7 +49,7 @@ def test_invalid_speaker_rejected():
         )
 
 
-def test_seed_requires_content_or_temporal():
+def test_seed_construction_with_content_only():
     Seed(
         seed_id="p01_case_001_paper_read",
         persona_id="p01",
@@ -156,3 +156,96 @@ def test_sample_serializes_to_locomo_json_shape():
     payload = sample.model_dump()
     assert payload["conversation"]["speaker_a"] == "user"
     assert payload["qa"][0]["category"] == 1
+
+
+def test_conversation_supports_session_2_through_6_extension():
+    conversation = Conversation(
+        speaker_a="user",
+        speaker_b="assistant",
+        session_1_date_time="2026-05-03",
+        session_1=[],
+        session_2_date_time="2026-05-06",
+        session_2=[Turn(speaker="user", dia_id="s2:1", text="x")],
+        session_3_date_time="2026-05-09",
+        session_3=[Turn(speaker="assistant", dia_id="s3:1", text="y")],
+        session_4_date_time="2026-05-12",
+        session_4=[],
+        session_5_date_time="2026-05-15",
+        session_5=[Turn(speaker="user", dia_id="s5:1", text="z")],
+        session_6_date_time="2026-05-18",
+        session_6=[],
+    )
+    payload = conversation.model_dump()
+    for n in range(1, 7):
+        assert f"session_{n}" in payload
+        assert f"session_{n}_date_time" in payload
+        assert isinstance(payload[f"session_{n}"], list)
+
+
+def test_conversation_rejects_invalid_speaker_in_session_2():
+    with pytest.raises(ValidationError):
+        Conversation(
+            speaker_a="user",
+            speaker_b="assistant",
+            session_1_date_time="2026-05-03",
+            session_2=[{"speaker": "narrator", "dia_id": "s2:1", "text": "x", "metadata": {}}],
+        )
+
+
+def test_conversation_rejects_unknown_extra_field():
+    with pytest.raises(ValidationError):
+        Conversation(
+            speaker_a="user",
+            speaker_b="assistant",
+            session_1_date_time="2026-05-03",
+            random_garbage="x",
+        )
+
+
+def test_paper_ref_rejects_extra_field():
+    with pytest.raises(ValidationError):
+        PaperRef(arxiv_id="x", title="y", category="z", oops=1)
+
+
+def test_seed_rejects_invalid_memory_type():
+    with pytest.raises(ValidationError):
+        Seed(
+            seed_id="p01_case_001_paper_read",
+            persona_id="p01",
+            case_id="case_001",
+            case_topic="cs.AI memory evaluation",
+            papers=[PaperRef(arxiv_id="2604.20779", title="SWE-chat", category="cs.AI")],
+            memory_type="typo",
+            content={"role": "anchor paper"},
+            temporal=None,
+            distractor_case_id="case_002",
+        )
+
+
+def test_turn_metadata_default_factory_populates_keys():
+    turn = Turn(speaker="user", dia_id="s1:1", text="x")
+    assert turn.metadata["seed_id"] is None
+    assert turn.metadata["is_distractor"] is True
+
+
+def test_persona_rejects_extra_field():
+    with pytest.raises(ValidationError):
+        Persona(
+            persona_id="p01",
+            user_id="u",
+            background="b",
+            oops=1,
+        )
+
+
+def test_qa_rejects_invalid_category():
+    base = {
+        "question": "q",
+        "answer": "a",
+        "evidence": ["s1:1"],
+        "metadata": {"question_kind": "memory_single_hop"},
+    }
+    with pytest.raises(ValidationError):
+        QA(**base, category=0)
+    with pytest.raises(ValidationError):
+        QA(**base, category=6)

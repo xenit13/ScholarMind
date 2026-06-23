@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+_SESSION_KEY = re.compile(r"^session_(\d+)$")
+_SESSION_DATE_KEY = re.compile(r"^session_(\d+)_date_time$")
 
 
 class PaperRef(BaseModel):
@@ -68,12 +72,39 @@ class Conversation(BaseModel):
     session_1_date_time: str
     session_1: list[Turn] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _validate_extra_sessions(self) -> Conversation:
+        extra = self.__pydantic_extra__
+        if not extra:
+            return self
+        for key, value in list(extra.items()):
+            if _SESSION_KEY.match(key):
+                if not isinstance(value, list):
+                    raise ValueError(f"{key} must be a list of Turn")
+                validated: list[Turn] = []
+                for item in value:
+                    if isinstance(item, dict):
+                        validated.append(Turn(**item))
+                    elif isinstance(item, Turn):
+                        validated.append(item)
+                    else:
+                        raise ValueError(
+                            f"{key} entries must be Turn or dict, got {type(item).__name__}"
+                        )
+                extra[key] = validated
+            elif _SESSION_DATE_KEY.match(key):
+                if not isinstance(value, str):
+                    raise ValueError(f"{key} must be a string date")
+            else:
+                raise ValueError(f"unexpected extra field: {key!r}")
+        return self
+
 
 class QA(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str
     answer: str
-    category: int
+    category: Literal[1, 2, 3, 4, 5]
     evidence: list[str]
     metadata: dict[str, Any]
 
