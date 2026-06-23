@@ -119,8 +119,15 @@ def score_locomo_samples(
     *,
     prediction_key: str,
     model_name: str,
+    skip_missing_predictions: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Score samples in-place (deep-copied) and return (scored_samples, report)."""
+    """Score samples in-place (deep-copied) and return (scored_samples, report).
+
+    If skip_missing_predictions is True, QAs that do not have the prediction_key
+    field at all are excluded from question_count and accuracy denominators.
+    This is useful for partial runs (e.g. --limit N) where only some QAs were attempted.
+    Empty-string predictions are still counted (as 0 score).
+    """
     _validate_prediction_key(prediction_key)
     scored = copy.deepcopy(samples)
     cat_counts: dict[str, float] = defaultdict(float)
@@ -131,6 +138,8 @@ def score_locomo_samples(
     question_count = 0
     for sample in scored:
         for qa in sample.get("qa", []):
+            if skip_missing_predictions and prediction_key not in qa:
+                continue
             question_count += 1
             cat = str(int(qa["category"]))
             prediction = qa.get(prediction_key, "")

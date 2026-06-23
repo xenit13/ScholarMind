@@ -125,6 +125,7 @@ async def main(args: argparse.Namespace) -> int:
         predictions,
         prediction_key=args.prediction_key,
         model_name=args.prediction_key,
+        skip_missing_predictions=True,
     )
     args.stats.parent.mkdir(parents=True, exist_ok=True)
     args.stats.write_text(
