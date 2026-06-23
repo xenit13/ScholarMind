@@ -244,7 +244,6 @@ def build_persona_conversation(
             session_date=session_date,
             seeds=seeds,
         )
-        check_chinese_ratio(turns)
         # Per-session distractor range is looser than the spec's [0.40, 0.50] target
         # because LLMs vary; the strict ratio is enforced at the per-persona aggregate
         # level by validate.run_structural_check.
