@@ -297,3 +297,71 @@ def test_knowledge_level_seed_uses_persona_background():
             assert s.content["background"] == persona.background, (
                 f"{persona.persona_id} knowledge_level seed has wrong background"
             )
+
+
+# ---------------------------------------------------------------------------
+# Task 5: load_paper_pool
+# ---------------------------------------------------------------------------
+
+from datetime import date  # noqa: E402
+
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+
+from scholar_mind.db.models import Base, PaperModel  # noqa: E402
+from scholar_mind.eval.locomo_build.seeds import load_paper_pool  # noqa: E402
+
+
+def _seed_sqlite_with_papers(tmp_path, count_per_cat=20):
+    db_path = tmp_path / "test.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    cats = PAPER_CATEGORIES
+    with Session() as session:
+        for cat_idx, cat in enumerate(cats):
+            for n in range(count_per_cat):
+                session.add(
+                    PaperModel(
+                        paper_id=f"2604.{cat_idx}{n:03d}",
+                        title=f"Test paper {cat}-{n}",
+                        authors_json="[]",
+                        abstract="...",
+                        categories_json=f'["{cat}"]',
+                        publish_date=date(2026, 4, 1),
+                        citation_count=0,
+                        has_source=True,
+                    )
+                )
+        session.commit()
+    return db_path
+
+
+def test_load_paper_pool_returns_records(tmp_path):
+    db_path = _seed_sqlite_with_papers(tmp_path)
+    pool = load_paper_pool(f"sqlite:///{db_path}")
+    assert len(pool) == 120  # 6 cats * 20 papers
+    cats = {p.category for p in pool}
+    assert cats == set(PAPER_CATEGORIES)
+
+
+def test_load_paper_pool_filters_to_six_categories(tmp_path):
+    db_path = _seed_sqlite_with_papers(tmp_path, count_per_cat=20)
+    engine = create_engine(f"sqlite:///{db_path}")
+    Session = sessionmaker(bind=engine)
+    with Session() as session:
+        session.add(
+            PaperModel(
+                paper_id="2604.9999",
+                title="Out-of-scope paper",
+                authors_json="[]",
+                abstract="...",
+                categories_json='["physics.gen-ph"]',
+                publish_date=date(2026, 4, 1),
+                citation_count=0,
+                has_source=True,
+            )
+        )
+        session.commit()
+    pool = load_paper_pool(f"sqlite:///{db_path}")
+    assert all(p.category in set(PAPER_CATEGORIES) for p in pool)

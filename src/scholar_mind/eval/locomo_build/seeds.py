@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
 import random
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
+
+from sqlalchemy import create_engine
+from sqlalchemy import text as sql_text
 
 from scholar_mind.eval.locomo_build.schema import PaperRef, Persona, Seed, TemporalUpdate
 
@@ -304,4 +308,33 @@ def build_all_seeds(
         out[persona.persona_id] = build_seeds_for_persona(
             persona, pool, rng=rng, used_arxiv_ids=used
         )
+    return out
+
+
+def load_paper_pool(database_url: str) -> list[PaperRecord]:
+    """Load real arXiv papers from the project SQLite DB, filtered to PAPER_CATEGORIES.
+
+    Returns PaperRecord instances with arxiv_id from papers.paper_id, title, and
+    the primary (first) category from categories_json.
+    """
+    engine = create_engine(database_url)
+    stmt = sql_text(
+        "SELECT paper_id, title, categories_json FROM papers "
+        "WHERE categories_json IS NOT NULL"
+    )
+    out: list[PaperRecord] = []
+    with engine.connect() as conn:
+        for row in conn.execute(stmt):
+            paper_id, title, categories_json = row
+            categories = json.loads(categories_json) if categories_json else []
+            primary = categories[0] if categories else ""
+            if primary not in PAPER_CATEGORIES:
+                continue
+            out.append(
+                PaperRecord(
+                    arxiv_id=paper_id,
+                    title=title,
+                    category=primary,
+                )
+            )
     return out
