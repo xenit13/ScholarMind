@@ -120,15 +120,19 @@ def sample_papers_for_persona(
     per_cat = papers_needed // len(PAPER_CATEGORIES)
     remainder = papers_needed - per_cat * len(PAPER_CATEGORIES)
     chosen: list[PaperRecord] = []
+    sampled_ids: set[str] = set()
     for idx, cat in enumerate(PAPER_CATEGORIES):
         target = per_cat + (1 if idx < remainder else 0)
-        candidates = available_by_cat[cat]
+        candidates = [p for p in available_by_cat[cat] if p.arxiv_id not in sampled_ids]
         if len(candidates) < target:
             raise ValueError(
                 f"paper pool exhausted for persona {persona_id} category {cat}: "
                 f"needed {target}, available {len(candidates)}"
             )
-        chosen.extend(rng.sample(candidates, target))
+        picked = rng.sample(candidates, target)
+        for p in picked:
+            sampled_ids.add(p.arxiv_id)
+        chosen.extend(picked)
     return chosen
 
 
@@ -315,8 +319,10 @@ def build_all_seeds(
 def load_paper_pool(database_url: str) -> list[PaperRecord]:
     """Load real arXiv papers from the project SQLite DB, filtered to PAPER_CATEGORIES.
 
-    Returns PaperRecord instances with arxiv_id from papers.paper_id, title, and
-    the primary (first) category from categories_json.
+    Returns one PaperRecord per (paper, category) pair where the paper's category list
+    intersects PAPER_CATEGORIES. A paper with categories ["cs.LG", "stat.ML"] appears
+    twice — once under cs.LG and once under stat.ML — so the sampler can fill either slot.
+    Cross-persona uniqueness is still enforced by arxiv_id in sample_papers_for_persona.
     """
     engine = create_engine(database_url)
     stmt = sql_text(
@@ -328,16 +334,15 @@ def load_paper_pool(database_url: str) -> list[PaperRecord]:
         for row in conn.execute(stmt):
             paper_id, title, categories_json = row
             categories = json.loads(categories_json) if categories_json else []
-            primary = categories[0] if categories else ""
-            if primary not in PAPER_CATEGORIES:
-                continue
-            out.append(
-                PaperRecord(
-                    arxiv_id=paper_id,
-                    title=title,
-                    category=primary,
-                )
-            )
+            for cat in categories:
+                if cat in PAPER_CATEGORIES:
+                    out.append(
+                        PaperRecord(
+                            arxiv_id=paper_id,
+                            title=title,
+                            category=cat,
+                        )
+                    )
     return out
 
 
