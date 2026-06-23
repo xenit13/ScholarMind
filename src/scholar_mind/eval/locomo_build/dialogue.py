@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date, timedelta
 from typing import Any, Protocol
 
 from scholar_mind.eval.locomo_build.prompts import build_dialogue_expansion_prompt
+from scholar_mind.eval.locomo_build.schema import Persona
 
 logger = logging.getLogger(__name__)
 
@@ -203,3 +205,46 @@ def _inject_missing_seed_fallback(
         )
         next_idx += 1
     return turns
+
+
+_BASE_DATE = date(2026, 5, 3)
+_SESSION_GAP_DAYS = 3
+
+
+def build_persona_conversation(
+    *,
+    chat_model: ChatModel,
+    persona: Persona,
+    seeds_by_case: dict[str, list[dict[str, Any]]],
+    sessions: int = 6,
+) -> dict[str, Any]:
+    """Iterate cases → sessions, expand each session via LLM, assemble conversation dict.
+
+    Raises ValueError if number of cases != sessions.
+    """
+    cases = sorted(seeds_by_case.keys())
+    if len(cases) != sessions:
+        raise ValueError(
+            f"expected {sessions} cases for {sessions} sessions, got {len(cases)}"
+        )
+    conversation: dict[str, Any] = {
+        "speaker_a": "user",
+        "speaker_b": "assistant",
+    }
+    for session_idx, case_id in enumerate(cases, start=1):
+        session_date = (
+            _BASE_DATE + timedelta(days=(session_idx - 1) * _SESSION_GAP_DAYS)
+        ).isoformat()
+        conversation[f"session_{session_idx}_date_time"] = session_date
+        seeds = seeds_by_case[case_id]
+        turns = expand_session(
+            chat_model=chat_model,
+            persona_background=persona.background,
+            session_index=session_idx,
+            session_date=session_date,
+            seeds=seeds,
+        )
+        check_chinese_ratio(turns)
+        check_distractor_ratio(turns)
+        conversation[f"session_{session_idx}"] = turns
+    return conversation

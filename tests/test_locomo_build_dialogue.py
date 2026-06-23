@@ -6,6 +6,7 @@ import pytest
 
 from scholar_mind.eval.locomo_build.dialogue import (
     assign_dia_ids,
+    build_persona_conversation,
     check_chinese_ratio,
     check_distractor_ratio,
     check_seed_coverage,
@@ -18,6 +19,7 @@ from scholar_mind.eval.locomo_build.prompts import (
     build_dialogue_expansion_prompt,
     build_qa_generation_prompt,
 )
+from scholar_mind.eval.locomo_build.schema import Persona
 
 
 def test_dialogue_prompt_includes_persona_background():
@@ -262,3 +264,78 @@ def test_expand_session_assigns_dia_ids_and_validates():
     assert len(turns) == 30
     assert turns[0]["dia_id"] == "s1:1"
     assert turns[0]["metadata"]["seed_id"] == "p01_case_001_paper_read"
+
+
+def _make_valid_session_payload(seed_id: str) -> str:
+    """Build a 30-turn session that satisfies distractor + speaker + coverage + chinese checks.
+    15 user turns (9 seed-bearing + 6 distractor) + 15 assistant turns (6 seed + 9 distractor)
+    → 15/30 = 50% distractor, 15/30 = 50% assistant, 1 seed covered.
+    """
+    turns = []
+    for i in range(15):
+        turns.append(
+            {
+                "speaker": "user",
+                "text": "我们讨论一下这篇锚点论文的核心贡献。",
+                "seed_id": seed_id if i < 9 else None,
+            }
+        )
+        turns.append(
+            {
+                "speaker": "assistant",
+                "text": "好的，这篇论文的方法确实很有意思。",
+                "seed_id": seed_id if i < 6 else None,
+            }
+        )
+    return json.dumps(turns[:30])  # exactly 30 turns
+
+
+def test_build_persona_conversation_yields_six_sessions():
+    payload = _make_valid_session_payload("p01_case_001_paper_read")
+    fake = _FakeChatModel([payload] * 6)
+    persona = Persona(persona_id="p01", user_id="u", background="ML 工程师")
+    # Provide 6 cases, each with 1 seed (uses the same seed_id for simplicity in this test)
+    seeds_by_case = {
+        f"case_{i:03d}": [
+            {
+                "seed_id": "p01_case_001_paper_read",
+                "memory_type": "paper_read",
+                "content": {"role": "anchor paper"},
+            }
+        ]
+        for i in range(1, 7)
+    }
+    conv = build_persona_conversation(
+        chat_model=fake,
+        persona=persona,
+        seeds_by_case=seeds_by_case,
+    )
+    assert conv["speaker_a"] == "user"
+    assert conv["speaker_b"] == "assistant"
+    session_keys = [k for k in conv if k.startswith("session_") and not k.endswith("_date_time")]
+    assert len(session_keys) == 6
+    assert all(conv[k] for k in session_keys)
+
+
+def test_build_persona_conversation_session_dates_are_distinct():
+    payload = _make_valid_session_payload("p01_case_001_paper_read")
+    fake = _FakeChatModel([payload] * 6)
+    persona = Persona(persona_id="p01", user_id="u", background="b")
+    # Provide 6 cases, each with 1 seed
+    seeds_by_case = {
+        f"case_{i:03d}": [
+            {
+                "seed_id": "p01_case_001_paper_read",
+                "memory_type": "paper_read",
+                "content": {},
+            }
+        ]
+        for i in range(1, 7)
+    }
+    conv = build_persona_conversation(
+        chat_model=fake,
+        persona=persona,
+        seeds_by_case=seeds_by_case,
+    )
+    dates = [conv[f"session_{i}_date_time"] for i in range(1, 7)]
+    assert len(set(dates)) == 6
