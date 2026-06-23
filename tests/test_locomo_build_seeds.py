@@ -365,3 +365,56 @@ def test_load_paper_pool_filters_to_six_categories(tmp_path):
         session.commit()
     pool = load_paper_pool(f"sqlite:///{db_path}")
     assert all(p.category in set(PAPER_CATEGORIES) for p in pool)
+
+
+# ---------------------------------------------------------------------------
+# Task 6: write_seeds_json (Stage 1 serialization)
+# ---------------------------------------------------------------------------
+
+import json  # noqa: E402
+
+from scholar_mind.eval.locomo_build.seeds import write_seeds_json  # noqa: E402
+
+
+def test_write_seeds_json_roundtrip(tmp_path):
+    rng = random.Random(42)
+    pool = _make_fake_papers()
+    by_persona = build_all_seeds(pool, rng=rng)
+    out_file = tmp_path / "seeds.json"
+    write_seeds_json(by_persona, out_file)
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert set(payload.keys()) == {"p01", "p02", "p03", "p04", "p05"}
+    assert len(payload["p01"]) == 36
+    first = payload["p01"][0]
+    for key in (
+        "seed_id",
+        "persona_id",
+        "case_id",
+        "case_topic",
+        "papers",
+        "memory_type",
+        "content",
+        "temporal",
+        "distractor_case_id",
+    ):
+        assert key in first
+
+
+def test_stage1_byte_identical_on_rerun_with_same_seed(tmp_path):
+    """Spec § 9 success criterion 7: Stage 1 must be byte-identical on rerun."""
+    pool = _make_fake_papers()
+    out_a = tmp_path / "seeds_a.json"
+    out_b = tmp_path / "seeds_b.json"
+    write_seeds_json(build_all_seeds(pool, rng=random.Random(42)), out_a)
+    write_seeds_json(build_all_seeds(pool, rng=random.Random(42)), out_b)
+    assert out_a.read_bytes() == out_b.read_bytes()
+
+
+def test_stage1_differs_with_different_seed(tmp_path):
+    """Different seeds should (very likely) produce different output."""
+    pool = _make_fake_papers()
+    out_a = tmp_path / "seeds_a.json"
+    out_b = tmp_path / "seeds_b.json"
+    write_seeds_json(build_all_seeds(pool, rng=random.Random(42)), out_a)
+    write_seeds_json(build_all_seeds(pool, rng=random.Random(7)), out_b)
+    assert out_a.read_bytes() != out_b.read_bytes()

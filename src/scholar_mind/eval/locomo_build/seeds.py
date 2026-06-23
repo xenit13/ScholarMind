@@ -4,6 +4,7 @@ import json
 import random
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy import text as sql_text
@@ -338,3 +339,16 @@ def load_paper_pool(database_url: str) -> list[PaperRecord]:
                 )
             )
     return out
+
+
+def write_seeds_json(by_persona: dict[str, list[Seed]], out_file: Path) -> None:
+    """Serialize seeds to disk as JSON, creating parent dirs if needed."""
+    payload = {
+        persona_id: [seed.model_dump() for seed in seeds]
+        for persona_id, seeds in by_persona.items()
+    }
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_file.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
