@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from scholar_mind.eval.locomo_build.dialogue import (
@@ -8,7 +10,9 @@ from scholar_mind.eval.locomo_build.dialogue import (
     check_distractor_ratio,
     check_seed_coverage,
     check_speaker_balance,
+    expand_session,
     find_missing_seeds,
+    parse_llm_dialogue_response,
 )
 from scholar_mind.eval.locomo_build.prompts import (
     build_dialogue_expansion_prompt,
@@ -192,3 +196,69 @@ def test_check_seed_coverage_full_runs_without_error():
         {"metadata": {"seed_id": None}},
     ]
     check_seed_coverage(turns, required)
+
+
+def test_parse_llm_dialogue_response_accepts_clean_json_array():
+    raw = (
+        '[{"speaker":"user","text":"hi","seed_id":null},'
+        '{"speaker":"assistant","text":"hello","seed_id":null}]'
+    )
+    parsed = parse_llm_dialogue_response(raw)
+    assert len(parsed) == 2
+    assert parsed[0]["speaker"] == "user"
+
+
+def test_parse_llm_dialogue_response_strips_markdown_fences():
+    raw = '```json\n[{"speaker":"user","text":"hi","seed_id":null}]\n```'
+    parsed = parse_llm_dialogue_response(raw)
+    assert len(parsed) == 1
+
+
+def test_parse_llm_dialogue_response_raises_on_invalid_payload():
+    with pytest.raises(ValueError, match="invalid dialogue payload"):
+        parse_llm_dialogue_response("not json at all")
+
+
+class _FakeChatModel:
+    def __init__(self, responses: list[str]):
+        self.responses = responses
+        self.calls = 0
+
+    def invoke(self, _prompt):
+        idx = self.calls
+        self.calls += 1
+        return type("Resp", (), {"content": self.responses[idx]})()
+
+
+def test_expand_session_assigns_dia_ids_and_validates():
+    """expand_session returns 30 turns with correct dia_ids, validates coverage."""
+    # Build a payload that satisfies: 30 turns, all seeds covered, speaker balance
+    pattern = [
+        {
+            "speaker": "user",
+            "text": "中文 anchor paper 提及。",
+            "seed_id": "p01_case_001_paper_read",
+        },
+        {"speaker": "assistant", "text": "中文回复内容。", "seed_id": None},
+    ]
+    raw_response = json.dumps(pattern * 15)  # 30 turns, 15 with seed, 15 without
+
+    fake = _FakeChatModel([raw_response])
+    seeds = [
+        {
+            "seed_id": "p01_case_001_paper_read",
+            "memory_type": "paper_read",
+            "content": {"role": "anchor paper"},
+        },
+    ]
+    turns = expand_session(
+        chat_model=fake,
+        persona_background="ML 工程师",
+        session_index=1,
+        session_date="2026-05-03",
+        seeds=seeds,
+        max_retries=1,
+    )
+    assert len(turns) == 30
+    assert turns[0]["dia_id"] == "s1:1"
+    assert turns[0]["metadata"]["seed_id"] == "p01_case_001_paper_read"
