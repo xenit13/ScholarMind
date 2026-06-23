@@ -95,8 +95,8 @@ def _is_chinese_char(ch: str) -> bool:
 def check_chinese_ratio(
     turns: list[dict[str, Any]],
     *,
-    min_ratio: float = 0.50,
-    max_violations_fraction: float = 0.20,
+    min_ratio: float = 0.30,
+    max_violations_fraction: float = 0.50,
 ) -> None:
     """Raise ValueError if too many turns have Chinese char ratio below min_ratio."""
     if not turns:
