@@ -144,14 +144,14 @@ def _seed_content(
     memory_type: str,
     case_topic: str,
     papers: list[PaperRef],
+    persona_background: str,
     rng: random.Random,
 ) -> dict:
-    primary = papers[0]
-    title = primary.title
     if memory_type == "paper_read":
+        primary = papers[0]
         return {
             "role": rng.choice(["anchor paper", "baseline candidate", "ablation target"]),
-            "paper_title": title,
+            "paper_title": primary.title,
         }
     if memory_type == "workflow":
         return {
@@ -184,9 +184,7 @@ def _seed_content(
             )
         }
     if memory_type == "knowledge_level":
-        return {
-            "background": "strong Python engineering background but limited causal inference math"
-        }
+        return {"background": persona_background}
     if memory_type == "project_constraint":
         return {
             "requirement": rng.choice(
@@ -248,6 +246,9 @@ def build_seeds_for_persona(
 
     Papers are sampled distinctly (per-persona) and grouped 5 per case in
     PAPER_CATEGORIES order. See sample_papers_for_persona docstring.
+
+    If ``used_arxiv_ids`` is provided, it is mutated in place to include the
+    sampled papers.
     """
     chosen_papers = sample_papers_for_persona(
         pool,
@@ -267,7 +268,9 @@ def build_seeds_for_persona(
         case_topic = build_persona_case_topic(category, research_task)
         distractor_case_id = get_distractor_case_id(case_id)
         for memory_type in MEMORY_TYPES:
-            content = _seed_content(memory_type, case_topic, case_papers, rng)
+            content = _seed_content(
+                memory_type, case_topic, case_papers, persona.background, rng
+            )
             temporal = _maybe_temporal(memory_type, content, rng, case_idx)
             paper_refs = [PaperRef(**asdict(p)) for p in case_papers]
             seeds.append(

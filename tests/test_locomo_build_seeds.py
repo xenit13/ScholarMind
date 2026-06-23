@@ -212,9 +212,40 @@ def test_temporal_seeds_have_consistent_dates():
     pool = _make_fake_papers()
     seeds = build_seeds_for_persona(PERSONAS[0], pool, rng=rng)
     temporal_seeds = [s for s in seeds if s.temporal is not None]
-    assert temporal_seeds, "expected at least one temporal seed"
     for s in temporal_seeds:
         assert s.temporal.old_date < s.temporal.new_date
+
+
+def test_maybe_temporal_returns_update_when_rng_forces_it():
+    """Force temporal=True via rng that returns 0.0 from rng.random()."""
+    from scholar_mind.eval.locomo_build.seeds import _maybe_temporal
+
+    rng = random.Random(0)
+    # Force rng.random() to return 0.0 (≤ TEMPORAL_FRACTION) by overriding
+    rng.random = lambda: 0.0  # type: ignore[assignment]
+    content = {"default_depth": "survey-first overview"}
+    result = _maybe_temporal("preference", content, rng, case_index=1)
+    assert result is not None
+    assert result.old_date < result.new_date
+    assert result.new == content
+    assert result.old != content  # alt content must differ
+
+
+def test_maybe_temporal_returns_none_for_non_temporal_types():
+    from scholar_mind.eval.locomo_build.seeds import _maybe_temporal
+
+    rng = random.Random(0)
+    rng.random = lambda: 0.0  # type: ignore[assignment]
+    for memory_type in ("paper_read", "workflow", "knowledge_level", "project_constraint"):
+        assert _maybe_temporal(memory_type, {}, rng, case_index=1) is None
+
+
+def test_maybe_temporal_returns_none_when_rng_above_threshold():
+    from scholar_mind.eval.locomo_build.seeds import _maybe_temporal
+
+    rng = random.Random(0)
+    rng.random = lambda: 0.99  # type: ignore[assignment]
+    assert _maybe_temporal("preference", {"default_depth": "x"}, rng, case_index=1) is None
 
 
 def test_temporal_seeds_only_for_preference_or_feedback():
@@ -252,3 +283,17 @@ def test_papers_do_not_repeat_across_personas_in_build_all():
                 f"paper {arxiv_id} reused across personas"
             )
             seen.add(arxiv_id)
+
+
+def test_knowledge_level_seed_uses_persona_background():
+    """M1 regression: knowledge_level content must reflect persona's actual background."""
+    rng = random.Random(42)
+    pool = _make_fake_papers()
+    for persona in PERSONAS:
+        seeds = build_seeds_for_persona(persona, pool, rng=rng)
+        kl_seeds = [s for s in seeds if s.memory_type == "knowledge_level"]
+        assert len(kl_seeds) == 6  # one per case
+        for s in kl_seeds:
+            assert s.content["background"] == persona.background, (
+                f"{persona.persona_id} knowledge_level seed has wrong background"
+            )
