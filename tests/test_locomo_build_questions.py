@@ -55,19 +55,31 @@ def test_seed_ids_to_dia_ids_raises_on_missing_seed():
 
 
 def test_is_answer_in_dialogue_detects_exact_substring():
-    dialogue_text = " ".join([
-        "user mentioned this paper is the anchor paper for the project.",
-    ])
-    assert is_answer_in_dialogue("anchor paper", [dialogue_text]) is True
+    # Long answer (>6 words) — verbatim copy should be detected as leak
+    long_answer = "the anchor paper for the project is swe chat coding agents"
+    dialogue_text = (
+        "user mentioned that the anchor paper for the project is swe chat coding agents "
+        "because it has good method assumptions."
+    )
+    assert is_answer_in_dialogue(long_answer, [dialogue_text]) is True
 
 
 def test_is_answer_in_dialogue_case_insensitive():
-    dialogue_text = "user: Anchor Paper is the role here."
-    assert is_answer_in_dialogue("anchor paper", [dialogue_text]) is True
+    long_answer = "The Anchor Paper For The Project Is SWE Chat"
+    dialogue_text = (
+        "user: the anchor paper for the project is swe chat is what we discussed."
+    )
+    assert is_answer_in_dialogue(long_answer, [dialogue_text]) is True
+
+
+def test_is_answer_in_dialogue_exempts_short_answers():
+    """Short answers (≤6 words) like paper titles are exempt — they legitimately appear in both."""
+    assert is_answer_in_dialogue("anchor paper", ["the anchor paper is here"]) is False
+    assert is_answer_in_dialogue("method assumptions failure modes", ["method assumptions failure modes"]) is False
 
 
 def test_is_answer_in_dialogue_returns_false_when_absent():
-    assert is_answer_in_dialogue("nonexistent answer", ["random text"]) is False
+    assert is_answer_in_dialogue("this answer does not appear anywhere in the dialogue text", ["random text"]) is False
 
 
 def test_check_qa_distribution_passes_with_12_each():
@@ -207,13 +219,15 @@ def test_build_persona_qas_translates_evidence_to_dia_ids():
 
 
 def test_build_persona_qas_rejects_answer_in_dialogue():
+    # Long answer (>6 words) that appears verbatim in dialogue triggers leak detection
+    leaked_answer = "the user mentioned the anchor paper is swe chat in our discussion"
     fake = _FakeChatModel(
         [
             json.dumps(
                 [
                     {
                         "question": f"q{i}",
-                        "answer": "anchor paper",  # present in dialogue_texts below
+                        "answer": leaked_answer,
                         "evidence_seed_ids": ["p01_case_001_paper_read"],
                         "case_id": "case_001",
                         "distractor_case_id": None,
@@ -226,7 +240,7 @@ def test_build_persona_qas_rejects_answer_in_dialogue():
         + [_fake_qa_payload(c) for c in range(2, 6)]
     )
     seed_to_dia = {"p01_case_001_paper_read": ["s1:1"]}
-    dialogue_texts = ["the role is anchor paper here."]
+    dialogue_texts = ["the user mentioned the anchor paper is swe chat in our discussion today."]
 
     with pytest.raises(RuntimeError, match="answer leaked from dialogue"):
         build_persona_qas(

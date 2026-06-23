@@ -63,9 +63,17 @@ def seed_ids_to_dia_ids(
 
 
 def is_answer_in_dialogue(answer: str, dialogue_texts: list[str]) -> bool:
-    """Return True if answer appears as a case-insensitive substring in any dialogue text."""
+    """Return True if answer appears as a case-insensitive substring in any dialogue text.
+
+    Short answers (≤ 6 words) are exempt because paper titles, role labels, and
+    other short technical terms legitimately appear in both seeds and dialogue.
+    Only flag long verbatim copies that would indicate the LLM lifted a full sentence.
+    """
     needle = re.sub(r"\s+", " ", answer.strip().lower())
     if not needle:
+        return False
+    word_count = len(needle.split())
+    if word_count <= 6:
         return False
     for hay in dialogue_texts:
         if needle in re.sub(r"\s+", " ", hay.lower()):
