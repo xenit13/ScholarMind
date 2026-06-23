@@ -176,8 +176,10 @@ def build_persona_qas(
     max_retries: int = 2,
 ) -> list[dict[str, Any]]:
     """Generate 60 QAs (5 categories x 12) for one persona, with evidence translated to dia_ids.
-    Raises RuntimeError if any answer appears verbatim in dialogue_texts (leakage check).
+    Raises RuntimeError if any answer appears verbatim in dialogue_texts (leakage check),
+    unless the answer is a paper title from the seeds (those legitimately appear in both).
     """
+    paper_titles = _extract_paper_titles(seeds_per_case)
     all_qas: list[dict[str, Any]] = []
     for category in range(1, 6):
         qas = generate_category_qas(
@@ -194,7 +196,10 @@ def build_persona_qas(
                 raise RuntimeError(
                     f"category {category} qa references unknown seed: {exc}"
                 ) from exc
-            if is_answer_in_dialogue(qa["answer"], dialogue_texts):
+            if (
+                is_answer_in_dialogue(qa["answer"], dialogue_texts)
+                and qa["answer"] not in paper_titles
+            ):
                 raise RuntimeError(
                     f"answer leaked from dialogue: {qa['answer']!r}"
                 )
@@ -234,3 +239,27 @@ def _memory_focus_for_category(category: int) -> list[str]:
         4: ["knowledge_level", "project_constraint"],
         5: ["confusable_memory"],
     }[category]
+
+
+def _extract_paper_titles(seeds_per_case: list[dict[str, Any]]) -> set[str]:
+    """Collect all paper titles from seeds' papers list and content fields.
+
+    These are exempt from the dialogue-leak check because paper titles
+    legitimately appear in both seeds and dialogue as entity references.
+    """
+    titles: set[str] = set()
+    for case in seeds_per_case:
+        for paper in case.get("papers", []):
+            title = paper.get("title")
+            if title:
+                titles.add(title)
+        for seed in case.get("seeds", []):
+            content = seed.get("content", {})
+            for value in content.values():
+                if isinstance(value, str):
+                    titles.add(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, str):
+                            titles.add(item)
+    return titles
