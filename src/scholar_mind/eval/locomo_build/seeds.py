@@ -93,15 +93,13 @@ def sample_papers_for_persona(
 ) -> list[PaperRecord]:
     """Sample distinct papers for one persona, avoiding re-use across personas.
 
+    Returns papers grouped by PAPER_CATEGORIES order (cs.AI block, then cs.CL, ...).
+    Callers that slice contiguously and read [0].category depend on this ordering.
+
     Balances across PAPER_CATEGORIES so each persona sees all 6 categories.
     Raises ValueError if any category has insufficient unused papers.
-
-    Note: ``persona_id`` is accepted for caller-side identification/logging and
-    to keep the function signature self-documenting; it is not consulted by the
-    sampling logic itself (cross-persona uniqueness is enforced via
-    ``used_arxiv_ids``).
+    ``persona_id`` is included in error messages for caller diagnostics.
     """
-    _ = persona_id  # accepted for API clarity; not used by sampling logic
     if used_arxiv_ids is None:
         used_arxiv_ids = set()
     available_by_cat: dict[str, list[PaperRecord]] = {
@@ -121,8 +119,8 @@ def sample_papers_for_persona(
         candidates = available_by_cat[cat]
         if len(candidates) < target:
             raise ValueError(
-                f"paper pool exhausted for category {cat}: needed {target}, "
-                f"available {len(candidates)}"
+                f"paper pool exhausted for persona {persona_id} category {cat}: "
+                f"needed {target}, available {len(candidates)}"
             )
         chosen.extend(rng.sample(candidates, target))
     return chosen

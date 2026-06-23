@@ -8,6 +8,7 @@ import pytest
 from scholar_mind.eval.locomo_build.seeds import (
     CASES_PER_PERSONA,
     MEMORY_TYPES,
+    PAPER_CATEGORIES,
     PERSONAS,
     RESEARCH_TASKS,
     SEEDS_PER_PERSONA,
@@ -109,7 +110,7 @@ def test_paper_record_is_frozen_dataclass():
 
 def _make_fake_papers() -> list[PaperRecord]:
     out: list[PaperRecord] = []
-    for cat_idx, cat in enumerate(("cs.AI", "cs.CL", "cs.CV", "cs.LG", "cs.HC", "stat.ML")):
+    for cat_idx, cat in enumerate(PAPER_CATEGORIES):
         # 30 per category supports 5 personas × 5 per category with cross-persona
         # distinctness (5 × 5 = 25 ≤ 30).
         for n in range(30):
@@ -137,7 +138,7 @@ def test_sample_papers_covers_all_categories():
     pool = _make_fake_papers()
     chosen = sample_papers_for_persona(pool, "p01", papers_needed=30, rng=rng)
     cats = {p.category for p in chosen}
-    assert cats == {"cs.AI", "cs.CL", "cs.CV", "cs.LG", "cs.HC", "stat.ML"}
+    assert cats == set(PAPER_CATEGORIES)
 
 
 def test_sample_papers_does_not_repeat_across_personas():
@@ -157,5 +158,18 @@ def test_sample_papers_raises_when_pool_too_small():
     rng = random.Random(42)
     pool = _make_fake_papers()[:5]
 
+    with pytest.raises(ValueError, match="paper pool exhausted"):
+        sample_papers_for_persona(pool, "p01", papers_needed=30, rng=rng)
+
+
+def test_sample_papers_raises_when_pool_exhausted_mid_iteration():
+    """Pool with enough cs.AI/cs.CL papers but nothing else should fail on cs.CV."""
+    rng = random.Random(42)
+    pool = [
+        PaperRecord(arxiv_id=f"2604.{cat_idx}000", title=f"t{i}", category=cat)
+        for cat_idx, cat in enumerate(PAPER_CATEGORIES)
+        for i in range(5)
+        if cat in ("cs.AI", "cs.CL")  # only 2 of 6 categories have any papers
+    ]
     with pytest.raises(ValueError, match="paper pool exhausted"):
         sample_papers_for_persona(pool, "p01", papers_needed=30, rng=rng)
