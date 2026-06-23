@@ -14,7 +14,9 @@ from scholar_mind.eval.locomo_build.seeds import (
     SEEDS_PER_PERSONA,
     SESSIONS_PER_PERSONA,
     PaperRecord,
+    build_all_seeds,
     build_persona_case_topic,
+    build_seeds_for_persona,
     get_distractor_case_id,
     sample_papers_for_persona,
 )
@@ -173,3 +175,80 @@ def test_sample_papers_raises_when_pool_exhausted_mid_iteration():
     ]
     with pytest.raises(ValueError, match="paper pool exhausted"):
         sample_papers_for_persona(pool, "p01", papers_needed=30, rng=rng)
+
+
+def test_build_seeds_for_persona_returns_36_seeds():
+    rng = random.Random(42)
+    pool = _make_fake_papers()
+    persona = PERSONAS[0]
+    seeds = build_seeds_for_persona(persona, pool, rng=rng)
+    assert len(seeds) == 36
+
+
+def test_each_case_has_six_memory_types():
+    rng = random.Random(42)
+    pool = _make_fake_papers()
+    seeds = build_seeds_for_persona(PERSONAS[0], pool, rng=rng)
+    by_case: dict[str, set[str]] = {}
+    for seed in seeds:
+        by_case.setdefault(seed.case_id, set()).add(seed.memory_type)
+    assert len(by_case) == 6
+    for case_id, types in by_case.items():
+        missing = set(MEMORY_TYPES) - types
+        assert types == set(MEMORY_TYPES), f"case {case_id} missing types: {missing}"
+
+
+def test_distractor_case_id_set_on_every_seed():
+    rng = random.Random(42)
+    pool = _make_fake_papers()
+    seeds = build_seeds_for_persona(PERSONAS[0], pool, rng=rng)
+    for seed in seeds:
+        assert seed.distractor_case_id
+        assert seed.distractor_case_id != seed.case_id
+
+
+def test_temporal_seeds_have_consistent_dates():
+    rng = random.Random(42)
+    pool = _make_fake_papers()
+    seeds = build_seeds_for_persona(PERSONAS[0], pool, rng=rng)
+    temporal_seeds = [s for s in seeds if s.temporal is not None]
+    assert temporal_seeds, "expected at least one temporal seed"
+    for s in temporal_seeds:
+        assert s.temporal.old_date < s.temporal.new_date
+
+
+def test_temporal_seeds_only_for_preference_or_feedback():
+    rng = random.Random(42)
+    pool = _make_fake_papers()
+    seeds = build_seeds_for_persona(PERSONAS[0], pool, rng=rng)
+    for s in seeds:
+        if s.temporal is not None:
+            assert s.memory_type in {"preference", "feedback"}
+
+
+def test_build_all_seeds_yields_5_personas_x_36():
+    rng = random.Random(42)
+    pool = _make_fake_papers()
+    by_persona = build_all_seeds(pool, rng=rng)
+    assert set(by_persona.keys()) == {p.persona_id for p in PERSONAS}
+    for persona_id, seeds in by_persona.items():
+        assert len(seeds) == 36, f"{persona_id} has {len(seeds)} seeds"
+        for seed in seeds:
+            assert seed.persona_id == persona_id
+
+
+def test_papers_do_not_repeat_across_personas_in_build_all():
+    rng = random.Random(42)
+    pool = _make_fake_papers()
+    by_persona = build_all_seeds(pool, rng=rng)
+    seen: set[str] = set()
+    for _persona_id, seeds in by_persona.items():
+        persona_paper_ids: set[str] = set()
+        for seed in seeds:
+            for paper in seed.papers:
+                persona_paper_ids.add(paper.arxiv_id)
+        for arxiv_id in persona_paper_ids:
+            assert arxiv_id not in seen, (
+                f"paper {arxiv_id} reused across personas"
+            )
+            seen.add(arxiv_id)

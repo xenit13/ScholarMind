@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import date, timedelta
 
-from scholar_mind.eval.locomo_build.schema import Persona
+from scholar_mind.eval.locomo_build.schema import PaperRef, Persona, Seed, TemporalUpdate
 
 CASES_PER_PERSONA = 6
 SESSIONS_PER_PERSONA = 6
@@ -124,3 +125,180 @@ def sample_papers_for_persona(
             )
         chosen.extend(rng.sample(candidates, target))
     return chosen
+
+
+_DEFAULT_BASE_DATE = date(2026, 5, 3)
+_SESSION_GAP_DAYS = 3
+
+
+def _case_dates(case_index: int) -> tuple[str, str, str]:
+    base = _DEFAULT_BASE_DATE + timedelta(days=case_index * _SESSION_GAP_DAYS)
+    return (
+        base.isoformat(),
+        (base - timedelta(days=30)).isoformat(),
+        (base + timedelta(days=30)).isoformat(),
+    )
+
+
+def _seed_content(
+    memory_type: str,
+    case_topic: str,
+    papers: list[PaperRef],
+    rng: random.Random,
+) -> dict:
+    primary = papers[0]
+    title = primary.title
+    if memory_type == "paper_read":
+        return {
+            "role": rng.choice(["anchor paper", "baseline candidate", "ablation target"]),
+            "paper_title": title,
+        }
+    if memory_type == "workflow":
+        return {
+            "outputs": rng.sample(
+                [
+                    "method assumptions",
+                    "failure modes",
+                    "dataset fit",
+                    "implementation risks",
+                    "evaluation protocol",
+                ],
+                2,
+            ),
+            "paper_titles": [p.title for p in papers[:2]],
+        }
+    if memory_type == "preference":
+        return {
+            "default_depth": rng.choice(
+                ["survey-first overview", "implementation-first notes", "results-first summary"]
+            )
+        }
+    if memory_type == "feedback":
+        return {
+            "style_tag": rng.choice(
+                [
+                    "intuition-first formula explanation",
+                    "rigor-first derivation",
+                    "example-first walkthrough",
+                ]
+            )
+        }
+    if memory_type == "knowledge_level":
+        return {
+            "background": "strong Python engineering background but limited causal inference math"
+        }
+    if memory_type == "project_constraint":
+        return {
+            "requirement": rng.choice(
+                [
+                    "start with limitations before novelty",
+                    "include reproducibility checklist",
+                    "map methods into education technology",
+                    "flag production stability concerns",
+                ]
+            )
+        }
+    raise ValueError(f"unknown memory_type {memory_type}")
+
+
+def _maybe_temporal(
+    memory_type: str,
+    content: dict,
+    rng: random.Random,
+    case_index: int,
+) -> TemporalUpdate | None:
+    if memory_type not in {"preference", "feedback"}:
+        return None
+    if rng.random() > TEMPORAL_FRACTION:
+        return None
+    _, old_date, new_date = _case_dates(case_index)
+    alt_content: dict[str, str] = {}
+    for key, value in content.items():
+        alt_pool = {
+            "default_depth": [
+                "survey-first overview",
+                "implementation-first notes",
+                "results-first summary",
+            ],
+            "style_tag": [
+                "intuition-first formula explanation",
+                "rigor-first derivation",
+                "example-first walkthrough",
+            ],
+        }
+        pool = alt_pool.get(key)
+        if pool:
+            alt = rng.choice([opt for opt in pool if opt != value])
+            alt_content[key] = alt
+    if not alt_content:
+        return None
+    return TemporalUpdate(
+        old=alt_content, new=content, old_date=old_date, new_date=new_date
+    )
+
+
+def build_seeds_for_persona(
+    persona: Persona,
+    pool: list[PaperRecord],
+    *,
+    rng: random.Random,
+    used_arxiv_ids: set[str] | None = None,
+) -> list[Seed]:
+    """Build 36 seeds for one persona: 6 cases x 6 memory_types.
+
+    Papers are sampled distinctly (per-persona) and grouped 5 per case in
+    PAPER_CATEGORIES order. See sample_papers_for_persona docstring.
+    """
+    chosen_papers = sample_papers_for_persona(
+        pool,
+        persona.persona_id,
+        papers_needed=CASES_PER_PERSONA * PAPERS_PER_CASE,
+        rng=rng,
+        used_arxiv_ids=used_arxiv_ids,
+    )
+    seeds: list[Seed] = []
+    for case_idx in range(CASES_PER_PERSONA):
+        case_id = f"case_{case_idx + 1:03d}"
+        case_papers = chosen_papers[
+            case_idx * PAPERS_PER_CASE : (case_idx + 1) * PAPERS_PER_CASE
+        ]
+        category = case_papers[0].category
+        research_task = RESEARCH_TASKS[case_idx % len(RESEARCH_TASKS)]
+        case_topic = build_persona_case_topic(category, research_task)
+        distractor_case_id = get_distractor_case_id(case_id)
+        for memory_type in MEMORY_TYPES:
+            content = _seed_content(memory_type, case_topic, case_papers, rng)
+            temporal = _maybe_temporal(memory_type, content, rng, case_idx)
+            paper_refs = [PaperRef(**asdict(p)) for p in case_papers]
+            seeds.append(
+                Seed(
+                    seed_id=f"{persona.persona_id}_{case_id}_{memory_type}",
+                    persona_id=persona.persona_id,
+                    case_id=case_id,
+                    case_topic=case_topic,
+                    papers=paper_refs,
+                    memory_type=memory_type,
+                    content=content,
+                    temporal=temporal,
+                    distractor_case_id=distractor_case_id,
+                )
+            )
+        if used_arxiv_ids is not None:
+            for p in case_papers:
+                used_arxiv_ids.add(p.arxiv_id)
+    return seeds
+
+
+def build_all_seeds(
+    pool: list[PaperRecord],
+    *,
+    rng: random.Random,
+) -> dict[str, list[Seed]]:
+    """Build seeds for all 5 personas, sharing the used-arxiv-id set across personas."""
+    used: set[str] = set()
+    out: dict[str, list[Seed]] = {}
+    for persona in PERSONAS:
+        out[persona.persona_id] = build_seeds_for_persona(
+            persona, pool, rng=rng, used_arxiv_ids=used
+        )
+    return out
