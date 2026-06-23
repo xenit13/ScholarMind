@@ -21,11 +21,23 @@ working conversation with the assistant, not giving memory commands.
 The assistant must respond substantively — ask clarifying questions, suggest
 approaches, or comment on the work. Do not just say "got it" or "noted".
 
-Also insert off-topic distractor turns (~40-50% of total turns) where user
-and assistant briefly discuss things unrelated to memory: weather,
-scheduling, formatting quirks of papers, tooling issues, random questions
-about LaTeX, etc. This distractor content must NOT contain any of the seed
-facts.
+# CRITICAL: MEMORY vs DISTRACTOR RATIO
+
+You must produce exactly {target_turns} turns. Of those:
+- **{seed_turns_min}-{seed_turns_max} turns must reference a seed_id** (memory-bearing turns)
+- **{distractor_turns_min}-{distractor_turns_max} turns must have seed_id=null** (distractor turns)
+
+Each provided seed must appear in AT LEAST 3 different turns. With {seed_count}
+seeds × 3 references = {seed_turns_min} memory-bearing turns minimum.
+
+Distractor turns cover topics unrelated to memory: weather, scheduling,
+paper formatting quirks, tooling issues, LaTeX questions, weekend plans, etc.
+Distractor text must NOT contain any seed facts.
+
+# EXAMPLE TURN DISTRIBUTION (for {target_turns} turns, {seed_count} seeds)
+
+If you produce 80% distractors (only 6 memory turns), the output is BROKEN and will be rejected.
+Aim for ~50% memory / ~50% distractor.
 
 Memory seeds for this session (JSON):
 {seeds_json}
@@ -36,7 +48,7 @@ Output a JSON array of exactly {target_turns} turn objects. Each turn:
 Rules:
 - seed_id MUST be null for distractor turns, and MUST match one of the
   seed ids above for memory-bearing turns
-- Every provided seed_id must appear at least once across the session
+- Each seed_id appears in at least 3 turns
 - Alternate speakers naturally; user-to-assistant ratio around 50/50
 - Each turn text is 1-3 sentences in Chinese (with English technical labels
   preserved, e.g., role names, paper titles)
@@ -120,12 +132,22 @@ def build_dialogue_expansion_prompt(
     seeds: list[dict[str, Any]],
     target_turns: int = 30,
 ) -> str:
+    seed_count = len(seeds)
+    seed_turns_min = max(seed_count * 3, int(target_turns * 0.40))
+    seed_turns_max = int(target_turns * 0.60)
+    distractor_turns_min = target_turns - seed_turns_max
+    distractor_turns_max = target_turns - seed_turns_min
     return _DIALOGUE_PROMPT_TEMPLATE.format(
         persona_background=persona_background,
         session_index=session_index,
         session_date=session_date,
         seeds_json=json.dumps(seeds, ensure_ascii=False, indent=2),
         target_turns=target_turns,
+        seed_count=seed_count,
+        seed_turns_min=seed_turns_min,
+        seed_turns_max=seed_turns_max,
+        distractor_turns_min=distractor_turns_min,
+        distractor_turns_max=distractor_turns_max,
     )
 
 
