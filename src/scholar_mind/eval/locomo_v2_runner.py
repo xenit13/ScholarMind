@@ -8,7 +8,6 @@ identifies memory-bearing turns; Turn.metadata.is_distractor flags distractors).
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -113,8 +112,10 @@ async def replay_memory_turns(
     conversation: dict[str, Any],
     user_id: str,
     top_k: int,
+    extraction_timeout: float = 300.0,
 ) -> int:
-    """Feed memory-bearing user turns into the memory system.
+    """Feed memory-bearing user turns into the memory system, then wait for
+    all in-flight extraction Celery tasks to complete.
 
     Returns the count of turns replayed (for logging/progress reporting).
     """
@@ -132,18 +133,18 @@ async def replay_memory_turns(
                 "top_k": top_k,
                 "conditional_memory_injection": False,
                 "memory_extraction_enabled": True,
-                "request_memory_extraction_enabled": False,
+                "request_memory_extraction_enabled": True,
             },
         ):
             continue
         replays += 1
 
-    memory_manager = getattr(research_service, "memory_manager", None)
-    extract_pending = getattr(memory_manager, "extract_pending_memories", None)
-    if callable(extract_pending):
-        result = extract_pending(user_id=user_id)
-        if asyncio.iscoroutine(result):
-            await result
+    # Wait for all queued extraction tasks to finish before returning, so the
+    # QA phase can rely on memory being populated. Production never does this —
+    # only specialized runners (LOCOMO v2) opt in via this explicit call.
+    wait = getattr(research_service, "wait_for_pending_extractions", None)
+    if callable(wait):
+        wait(timeout=extraction_timeout)
     return replays
 
 
@@ -155,7 +156,11 @@ async def ask_question(
     session_id: str,
     top_k: int,
 ) -> tuple[str, list[str]]:
-    """Ask one QA, returning (prediction_text, citation_evidence_ids)."""
+    """Ask one QA, returning (prediction_text, citation_evidence_ids).
+
+    Sets request_memory_extraction_enabled=False so the QA itself doesn't
+    pollute memory (replay phase is the only memory source in LOCOMO mode).
+    """
     query = f"{question.strip()}\n\n{_ANSWER_INSTRUCTION}"
     answer_text, citations = await _drain_stream(
         research_service.stream(
@@ -169,6 +174,7 @@ async def ask_question(
                 "top_k": top_k,
                 "conditional_memory_injection": False,
                 "memory_extraction_enabled": False,
+                "request_memory_extraction_enabled": False,
             },
         )
     )

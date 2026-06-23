@@ -771,6 +771,7 @@ def test_research_service_schedules_request_scoped_memory_extraction(
 
     def _fake_enqueue(**kwargs):
         scheduled_calls.append(kwargs)
+        return "fake_async_result"  # truthy sentinel so dispatch_success=True
 
     monkeypatch.setattr(
         research_module,

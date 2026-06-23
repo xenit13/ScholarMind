@@ -170,23 +170,25 @@ async def test_replay_calls_stream_for_each_memory_turn():
 
 
 @pytest.mark.asyncio
-async def test_replay_calls_extract_pending_at_end():
+async def test_replay_calls_wait_for_pending_extractions():
+    """Replay should wait for queued Celery tasks before returning."""
     conv = _make_conversation({1: [_turn("user", "memory", seed_id="seed_a")]})
-    extract_calls: list[dict] = []
-
-    class FakeMM:
-        def extract_pending_memories(self, *, user_id):
-            extract_calls.append({"user_id": user_id})
+    wait_calls: list[dict] = []
 
     fake = _FakeResearchService()
-    fake.memory_manager = FakeMM()
+
+    def wait_fn(*, timeout: float = 300.0):
+        wait_calls.append({"timeout": timeout})
+        return {"total": 0, "succeeded": 0, "failed": 0}
+
+    fake.wait_for_pending_extractions = wait_fn
     await replay_memory_turns(
         research_service=fake,
         conversation=conv,
         user_id="u1",
         top_k=4,
     )
-    assert extract_calls == [{"user_id": "u1"}]
+    assert wait_calls == [{"timeout": 300.0}]
 
 
 # ---------- ask_question ----------
