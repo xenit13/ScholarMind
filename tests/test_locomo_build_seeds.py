@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import random
 
 import pytest
 
@@ -14,6 +15,7 @@ from scholar_mind.eval.locomo_build.seeds import (
     PaperRecord,
     build_persona_case_topic,
     get_distractor_case_id,
+    sample_papers_for_persona,
 )
 
 
@@ -103,3 +105,57 @@ def test_paper_record_is_frozen_dataclass():
     assert record.category == "cs.AI"
     with pytest.raises(dataclasses.FrozenInstanceError):
         record.arxiv_id = "x"
+
+
+def _make_fake_papers() -> list[PaperRecord]:
+    out: list[PaperRecord] = []
+    for cat_idx, cat in enumerate(("cs.AI", "cs.CL", "cs.CV", "cs.LG", "cs.HC", "stat.ML")):
+        # 30 per category supports 5 personas × 5 per category with cross-persona
+        # distinctness (5 × 5 = 25 ≤ 30).
+        for n in range(30):
+            out.append(
+                PaperRecord(
+                    arxiv_id=f"2604.{cat_idx}{n:03d}",
+                    title=f"Sample paper {cat}-{n}",
+                    category=cat,
+                )
+            )
+    return out
+
+
+def test_sample_papers_returns_distinct_papers():
+    rng = random.Random(42)
+    pool = _make_fake_papers()
+    chosen = sample_papers_for_persona(pool, "p01", papers_needed=30, rng=rng)
+    assert len(chosen) == 30
+    arxiv_ids = [p.arxiv_id for p in chosen]
+    assert len(set(arxiv_ids)) == 30
+
+
+def test_sample_papers_covers_all_categories():
+    rng = random.Random(42)
+    pool = _make_fake_papers()
+    chosen = sample_papers_for_persona(pool, "p01", papers_needed=30, rng=rng)
+    cats = {p.category for p in chosen}
+    assert cats == {"cs.AI", "cs.CL", "cs.CV", "cs.LG", "cs.HC", "stat.ML"}
+
+
+def test_sample_papers_does_not_repeat_across_personas():
+    rng = random.Random(42)
+    pool = _make_fake_papers()
+    used: set[str] = set()
+    for persona_id in ("p01", "p02", "p03", "p04", "p05"):
+        chosen = sample_papers_for_persona(
+            pool, persona_id, papers_needed=30, rng=rng, used_arxiv_ids=used
+        )
+        for p in chosen:
+            assert p.arxiv_id not in used
+            used.add(p.arxiv_id)
+
+
+def test_sample_papers_raises_when_pool_too_small():
+    rng = random.Random(42)
+    pool = _make_fake_papers()[:5]
+
+    with pytest.raises(ValueError, match="paper pool exhausted"):
+        sample_papers_for_persona(pool, "p01", papers_needed=30, rng=rng)

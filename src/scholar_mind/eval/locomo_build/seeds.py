@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 
 from scholar_mind.eval.locomo_build.schema import Persona
@@ -80,3 +81,48 @@ def get_distractor_case_id(case_id: str) -> str:
 
 def build_persona_case_topic(category: str, research_task: str) -> str:
     return f"{category} {research_task}"
+
+
+def sample_papers_for_persona(
+    pool: list[PaperRecord],
+    persona_id: str,
+    *,
+    papers_needed: int,
+    rng: random.Random,
+    used_arxiv_ids: set[str] | None = None,
+) -> list[PaperRecord]:
+    """Sample distinct papers for one persona, avoiding re-use across personas.
+
+    Balances across PAPER_CATEGORIES so each persona sees all 6 categories.
+    Raises ValueError if any category has insufficient unused papers.
+
+    Note: ``persona_id`` is accepted for caller-side identification/logging and
+    to keep the function signature self-documenting; it is not consulted by the
+    sampling logic itself (cross-persona uniqueness is enforced via
+    ``used_arxiv_ids``).
+    """
+    _ = persona_id  # accepted for API clarity; not used by sampling logic
+    if used_arxiv_ids is None:
+        used_arxiv_ids = set()
+    available_by_cat: dict[str, list[PaperRecord]] = {
+        cat: [] for cat in PAPER_CATEGORIES
+    }
+    for paper in pool:
+        if paper.arxiv_id in used_arxiv_ids:
+            continue
+        if paper.category in available_by_cat:
+            available_by_cat[paper.category].append(paper)
+
+    per_cat = papers_needed // len(PAPER_CATEGORIES)
+    remainder = papers_needed - per_cat * len(PAPER_CATEGORIES)
+    chosen: list[PaperRecord] = []
+    for idx, cat in enumerate(PAPER_CATEGORIES):
+        target = per_cat + (1 if idx < remainder else 0)
+        candidates = available_by_cat[cat]
+        if len(candidates) < target:
+            raise ValueError(
+                f"paper pool exhausted for category {cat}: needed {target}, "
+                f"available {len(candidates)}"
+            )
+        chosen.extend(rng.sample(candidates, target))
+    return chosen
