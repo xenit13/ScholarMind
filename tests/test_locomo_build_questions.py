@@ -5,6 +5,7 @@ import json
 import pytest
 
 from scholar_mind.eval.locomo_build.questions import (
+    build_persona_qas,
     check_qa_distribution,
     generate_category_qas,
     is_answer_in_dialogue,
@@ -171,5 +172,80 @@ def test_generate_category_qas_raises_when_distribution_invalid():
             persona_id="p01",
             category=1,
             seeds_per_case=[],
+            max_retries=0,
+        )
+
+
+def test_build_persona_qas_translates_evidence_to_dia_ids():
+    fake = _FakeChatModel([_fake_qa_payload(c) for c in range(1, 6)])
+    seeds_per_case = [
+        {
+            "case_id": "case_001",
+            "case_topic": "cs.AI memory evaluation",
+            "seeds": [
+                {
+                    "seed_id": "p01_case_001_paper_read",
+                    "memory_type": "paper_read",
+                    "content": {"role": "anchor paper"},
+                }
+            ],
+        }
+    ]
+    seed_to_dia = {"p01_case_001_paper_read": ["s1:3", "s1:5"]}
+    dialogue_texts = ["unrelated text only"]
+
+    qas = build_persona_qas(
+        chat_model=fake,
+        persona_id="p01",
+        seeds_per_case=seeds_per_case,
+        seed_to_dia_lookup=seed_to_dia,
+        dialogue_texts=dialogue_texts,
+    )
+    assert len(qas) == 60
+    assert all("evidence" in qa and qa["evidence"] for qa in qas)
+    assert qas[0]["evidence"] == ["s1:3", "s1:5"]
+
+
+def test_build_persona_qas_rejects_answer_in_dialogue():
+    fake = _FakeChatModel(
+        [
+            json.dumps(
+                [
+                    {
+                        "question": f"q{i}",
+                        "answer": "anchor paper",  # present in dialogue_texts below
+                        "evidence_seed_ids": ["p01_case_001_paper_read"],
+                        "case_id": "case_001",
+                        "distractor_case_id": None,
+                        "template_id": f"t{i}",
+                    }
+                    for i in range(12)
+                ]
+            )
+        ]
+        + [_fake_qa_payload(c) for c in range(2, 6)]
+    )
+    seed_to_dia = {"p01_case_001_paper_read": ["s1:1"]}
+    dialogue_texts = ["the role is anchor paper here."]
+
+    with pytest.raises(RuntimeError, match="answer leaked from dialogue"):
+        build_persona_qas(
+            chat_model=fake,
+            persona_id="p01",
+            seeds_per_case=[
+                {
+                    "case_id": "case_001",
+                    "case_topic": "t",
+                    "seeds": [
+                        {
+                            "seed_id": "p01_case_001_paper_read",
+                            "memory_type": "paper_read",
+                            "content": {},
+                        }
+                    ],
+                }
+            ],
+            seed_to_dia_lookup=seed_to_dia,
+            dialogue_texts=dialogue_texts,
             max_retries=0,
         )
