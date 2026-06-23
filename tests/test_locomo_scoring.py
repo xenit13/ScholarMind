@@ -31,12 +31,23 @@ def test_score_answer_cat2_uses_f1():
     assert 0.0 < score <= 1.0
 
 
-def test_score_answer_cat5_no_info_match():
-    assert score_answer("no information available", "anchor paper", category=5) == 1.0
+def test_score_answer_cat5_no_info_match_when_gold_is_no_info():
+    # Gold answer is "no information available" → prediction must also be a refusal
+    assert score_answer("no information available", "no information available", category=5) == 1.0
+    assert score_answer("无法确定", "no information available", category=5) == 1.0
 
 
-def test_score_answer_cat5_actual_answer_scores_zero():
+def test_score_answer_cat5_actual_answer_scores_zero_when_gold_is_no_info():
+    # Gold is no-info but prediction is a real answer → 0
     assert score_answer("anchor paper", "no information available", category=5) == 0.0
+
+
+def test_score_answer_cat5_real_answer_uses_f1():
+    # Gold is a real cross-case answer → use F1 like cat 2-4
+    assert score_answer("anchor paper", "anchor paper", category=5) == 1.0
+    score = score_answer("anchor paper baseline candidate", "anchor paper", category=5)
+    assert 0.0 < score < 1.0
+    assert score_answer("totally unrelated text", "anchor paper", category=5) == 0.0
 
 
 def test_score_answer_unsupported_category():

@@ -82,10 +82,17 @@ def _is_no_information_response(prediction: str) -> bool:
 
 
 def score_answer(prediction: Any, answer: Any, category: int | str) -> float:
-    """Score a single prediction against gold answer for given LOCOMO category (1-5)."""
+    """Score a single prediction against gold answer for given LOCOMO category (1-5).
+
+    Category 5 (adversarial) has two valid answer shapes:
+    - Gold answer is "no information available" → prediction must also be a refusal.
+    - Gold answer is a real cross-case answer → prediction must match via F1.
+    """
     cat = int(category)
     if cat == 5:
-        return 1.0 if _is_no_information_response(prediction) else 0.0
+        if _is_no_information_response(answer):
+            return 1.0 if _is_no_information_response(prediction) else 0.0
+        return _f1_score(str(prediction), str(answer))
     if cat == 1:
         return _multi_answer_f1(str(prediction), str(answer))
     if cat in {2, 3, 4}:
