@@ -7,16 +7,6 @@ from scholar_mind.eval.locomo_build.schema import Persona
 CASES_PER_PERSONA = 6
 SESSIONS_PER_PERSONA = 6
 PAPERS_PER_CASE = 5
-SEEDS_PER_PERSONA = CASES_PER_PERSONA * len(
-    [
-        "paper_read",
-        "workflow",
-        "preference",
-        "feedback",
-        "knowledge_level",
-        "project_constraint",
-    ]
-)
 
 MEMORY_TYPES = (
     "paper_read",
@@ -26,6 +16,8 @@ MEMORY_TYPES = (
     "knowledge_level",
     "project_constraint",
 )
+
+SEEDS_PER_PERSONA = CASES_PER_PERSONA * len(MEMORY_TYPES)
 
 PAPER_CATEGORIES = ("cs.AI", "cs.CL", "cs.CV", "cs.LG", "cs.HC", "stat.ML")
 
@@ -66,10 +58,22 @@ PERSONAS: tuple[Persona, ...] = (
 
 
 def get_distractor_case_id(case_id: str) -> str:
-    parts = case_id.split("_")
-    if len(parts) != 2:
+    """Return the next case_id in the cyclic sequence case_001..case_006 → case_001.
+
+    The distractor always differs from the input case (cycle length = CASES_PER_PERSONA).
+    Raises ValueError if case_id is not in the form `case_NNN` where NNN ∈ [001, CASES_PER_PERSONA].
+    """
+    try:
+        prefix, n_str = case_id.split("_")
+    except ValueError as exc:
+        raise ValueError(f"unexpected case_id format: {case_id}") from exc
+    if prefix != "case" or not n_str.isdigit():
         raise ValueError(f"unexpected case_id format: {case_id}")
-    n = int(parts[1])
+    n = int(n_str)
+    if not 1 <= n <= CASES_PER_PERSONA:
+        raise ValueError(
+            f"case_id out of range [1,{CASES_PER_PERSONA}]: {case_id}"
+        )
     next_n = (n % CASES_PER_PERSONA) + 1
     return f"case_{next_n:03d}"
 
