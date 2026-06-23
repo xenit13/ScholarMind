@@ -419,6 +419,146 @@ def test_memory_manager_decay_disabled_uses_semantic_order(tmp_path):
     assert injected_text == "- 语义分更高的旧记忆"
 
 
+def test_memory_manager_adds_exact_case_anchor_records_missing_from_vector_hits(tmp_path):
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'memory.db'}",
+        memory_root_dir=str(tmp_path / "memories"),
+        log_dir=str(tmp_path / "logs"),
+        qdrant_location=":memory:",
+        bootstrap_sample_data=False,
+        memory_top_k=2,
+        memory_min_similarity_score=0.0,
+        memory_min_final_score=0.0,
+    )
+    init_database(settings)
+    repository = MemoryRepository(build_session_factory(settings))
+    now = datetime.now(UTC)
+    wrong = StructuredMemoryRecord(
+        memory_id="mem_wrong",
+        user_id="u1",
+        scope="user",
+        memory_type="workflow",
+        content="在 ScholarMind 项目 case_007 中，论文角色是 anchor paper。",
+        source="conversation",
+        importance=0.9,
+        confidence=0.9,
+        status="active",
+        created_at=now,
+        updated_at=now,
+        decay_rate=0.01,
+        decay_floor=0.5,
+    )
+    target_role = wrong.model_copy(
+        update={
+            "memory_id": "mem_case_023_role",
+            "content": "在 ScholarMind 项目 case_023 中，论文角色是 survey seed。",
+        }
+    )
+    target_output = wrong.model_copy(
+        update={
+            "memory_id": "mem_case_023_output",
+            "content": (
+                "在 ScholarMind 项目 case_023 中，默认输出标签是 "
+                "math intuition 和 engineering steps。"
+            ),
+        }
+    )
+    repository.upsert(wrong)
+    repository.upsert(target_role)
+    repository.upsert(target_output)
+    index = _Index(search_results=[SimpleNamespace(score=0.99, payload={"memory_id": "mem_wrong"})])
+    manager = MemoryManager(
+        settings,
+        index,
+        _Embedder(),
+        llm=None,
+        memory_repository=repository,
+    )
+
+    injected_text, hit_count = manager.get_context_sync(
+        "u1",
+        "回忆 ScholarMind 项目 case_023：生成比较报告时，论文定位和两个默认栏目分别是什么？",
+    )
+
+    assert hit_count == 2
+    assert "case_023" in injected_text
+    assert "survey seed" in injected_text
+    assert "math intuition" in injected_text
+    assert "case_007" not in injected_text
+
+
+def test_memory_manager_adds_hyphenated_topic_anchor_records(tmp_path):
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'memory.db'}",
+        memory_root_dir=str(tmp_path / "memories"),
+        log_dir=str(tmp_path / "logs"),
+        qdrant_location=":memory:",
+        bootstrap_sample_data=False,
+        memory_top_k=2,
+        memory_min_similarity_score=0.0,
+        memory_min_final_score=0.0,
+    )
+    init_database(settings)
+    repository = MemoryRepository(build_session_factory(settings))
+    now = datetime.now(UTC)
+    base = StructuredMemoryRecord(
+        memory_id="mem_wrong",
+        user_id="u1",
+        scope="user",
+        memory_type="workflow",
+        content="在 ScholarMind 项目 case_007 中，默认输出标签是 method assumptions。",
+        source="conversation",
+        importance=0.9,
+        confidence=0.9,
+        status="active",
+        created_at=now,
+        updated_at=now,
+        decay_rate=0.01,
+        decay_floor=0.5,
+    )
+    target_role = base.model_copy(
+        update={
+            "memory_id": "mem_cond_role",
+            "content": (
+                "In ScholarMind project case_011, the paper was marked as a survey seed "
+                "for cond-mat.str-el long-context assistant reliability."
+            ),
+        }
+    )
+    target_output = base.model_copy(
+        update={
+            "memory_id": "mem_cond_output",
+            "content": (
+                "在 ScholarMind 项目 case_011 的 cond-mat.str-el long-context assistant "
+                "reliability 比较设置中，默认输出应包含英文标签 `math intuition` 和 "
+                "`engineering steps`。"
+            ),
+        }
+    )
+    repository.upsert(base)
+    repository.upsert(target_role)
+    repository.upsert(target_output)
+    index = _Index(search_results=[SimpleNamespace(score=0.99, payload={"memory_id": "mem_wrong"})])
+    manager = MemoryManager(
+        settings,
+        index,
+        _Embedder(),
+        llm=None,
+        memory_repository=repository,
+    )
+
+    injected_text, hit_count = manager.get_context_sync(
+        "u1",
+        "基于我之前对 cond-mat.str-el long-context assistant reliability 的比较设置，"
+        "请用英文标签回答：这个项目的 paper role 和两个默认输出项是什么？",
+    )
+
+    assert hit_count == 2
+    assert "survey seed" in injected_text
+    assert "math intuition" in injected_text
+    assert "case_007" not in injected_text
+
+
 def test_memory_manager_formats_discrete_memory_in_structured_context(tmp_path):
     settings = Settings(
         database_url=f"sqlite:///{tmp_path / 'memory.db'}",

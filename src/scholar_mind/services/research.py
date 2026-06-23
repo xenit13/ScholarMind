@@ -113,6 +113,18 @@ def _request_payload_with_memory_defaults(settings, request_payload: dict) -> di
     return payload
 
 
+def _memory_extraction_enabled(request_payload: dict | None) -> bool:
+    if not isinstance(request_payload, dict):
+        return True
+    return bool(request_payload.get("memory_extraction_enabled", True))
+
+
+def _request_memory_extraction_enabled(request_payload: dict | None) -> bool:
+    if not isinstance(request_payload, dict):
+        return True
+    return bool(request_payload.get("request_memory_extraction_enabled", True))
+
+
 def _runtime_metrics_snapshot(stored: dict) -> dict[str, int | float | list[str]]:
     usage = _usage_metrics(stored)
     return {
@@ -477,6 +489,7 @@ class ResearchService:
                     session_id=session_id,
                     request_id=request_id,
                     query=query,
+                    request_payload=request_payload,
                     previous_state=previous,
                     result=result,
                 )
@@ -552,6 +565,7 @@ class ResearchService:
                 session_id=session_id,
                 request_id=request_id,
                 query=query,
+                request_payload=request_payload,
                 previous_state=previous,
                 result=result,
             )
@@ -638,6 +652,7 @@ class ResearchService:
         session_id: str,
         request_id: str,
         query: str,
+        request_payload: dict,
         previous_state: dict,
         result: dict,
     ) -> dict:
@@ -665,7 +680,7 @@ class ResearchService:
             else:
                 round_messages.extend(new_tool_trace_messages)
 
-        if round_messages:
+        if round_messages and _memory_extraction_enabled(request_payload):
             prior_human_rounds = sum(
                 1 for message in previous_messages if getattr(message, "type", "") == "human"
             )
@@ -686,16 +701,18 @@ class ResearchService:
                 messages=round_messages,
                 explicit_memories=stored.get("explicit_memory_candidates", []),
             )
-            self._dispatch_request_memory_extraction(
-                user_id=user_id,
-                session_id=session_id,
-                request_id=request_id,
-                round_index=round_index,
-                round_messages=round_messages,
-                explicit_memories=stored.get("explicit_memory_candidates", []),
-            )
+            if _request_memory_extraction_enabled(request_payload):
+                self._dispatch_request_memory_extraction(
+                    user_id=user_id,
+                    session_id=session_id,
+                    request_id=request_id,
+                    round_index=round_index,
+                    round_messages=round_messages,
+                    explicit_memories=stored.get("explicit_memory_candidates", []),
+                )
 
         return stored
+
 
     def _dispatch_request_memory_extraction(
         self,

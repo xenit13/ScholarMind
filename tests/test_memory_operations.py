@@ -220,6 +220,89 @@ def test_operation_applier_updates_semantic_match_and_increments_version(tmp_pat
     assert events[0].old_record["content"] == "用户偏好简洁回答。"
 
 
+def test_operation_applier_keeps_distinct_case_anchored_memories_separate(tmp_path):
+    existing_content = (
+        "在 ScholarMind 项目 case_001 中，我把论文《SWE-chat: Coding Agent "
+        "Interactions From Real Users in the Wild》标记为 `anchor paper`，用于 cs.AI "
+        "memory evaluation"
+    )
+    candidate_content = (
+        "在 ScholarMind 项目 case_002 中，我把论文《Designing a Visualization Atlas: "
+        "Lessons & Reflections from The UK Co-Benefits Atlas for Climate Mitigation》"
+        "标记为 `negative example`，用于 cs.HC paper reading personalization"
+    )
+    repository = _repository(tmp_path)
+    repository.upsert(
+        _record(
+            "mem_existing",
+            existing_content,
+            memory_type="paper_read",
+        )
+    )
+    applier = MemoryOperationApplier(repository, _Index(), _Embedder())
+
+    result = applier.apply_candidate(
+        user_id="u1",
+        candidate=_candidate(
+            candidate_content,
+            memory_type="paper_read",
+        ),
+        request_id="req1",
+        session_id="s1",
+    )
+
+    stored = repository.get("u1", "mem_existing")
+    active = repository.list_active("u1")
+    assert result.operation == "ADD"
+    assert result.memory_id != "mem_existing"
+    assert stored is not None
+    assert stored.content == existing_content
+    assert stored.version == 1
+    assert [record.content for record in active] == [existing_content, candidate_content]
+
+
+def test_operation_applier_keeps_same_case_distinct_paper_pair_memories_separate(tmp_path):
+    existing_content = (
+        "在 ScholarMind 项目 case_001 中，我把论文《SWE-chat: Coding Agent "
+        "Interactions From Real Users in the Wild》标记为 `anchor paper`，用于 cs.AI "
+        "memory evaluation"
+    )
+    candidate_content = (
+        "比较《SWE-chat: Coding Agent Interactions From Real Users in the Wild》和"
+        "《PokeVLA: Empowering Pocket-Sized Vision-Language-Action Model with "
+        "Comprehensive World Knowledge Guidance》时，我的默认输出要包含英文标签 "
+        "`method assumptions` 和 `failure modes`"
+    )
+    repository = _repository(tmp_path)
+    repository.upsert(
+        _record(
+            "mem_existing",
+            existing_content,
+            memory_type="paper_read",
+        )
+    )
+    applier = MemoryOperationApplier(repository, _Index(), _Embedder())
+
+    result = applier.apply_candidate(
+        user_id="u1",
+        candidate=_candidate(
+            candidate_content,
+            memory_type="paper_read",
+        ),
+        request_id="req1",
+        session_id="s1",
+    )
+
+    stored = repository.get("u1", "mem_existing")
+    active = repository.list_active("u1")
+    assert result.operation == "ADD"
+    assert result.memory_id != "mem_existing"
+    assert stored is not None
+    assert stored.content == existing_content
+    assert stored.version == 1
+    assert [record.content for record in active] == [existing_content, candidate_content]
+
+
 def test_operation_applier_deletes_semantic_match_without_physical_delete(tmp_path):
     repository = _repository(tmp_path)
     repository.upsert(_record("mem_existing"))

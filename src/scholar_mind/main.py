@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, is_dataclass
+from pathlib import Path
 from typing import Any
 
 import anyio
 import typer
 
 from scholar_mind.app import get_container
+from scholar_mind.eval.locomo import (
+    build_memory_locomo_dataset,
+    run_locomo_qa,
+    score_prediction_file,
+    validate_locomo_dataset,
+)
 from scholar_mind.models.domain import (
     AskRequest,
     CrossDomainRequest,
@@ -25,6 +32,20 @@ eval_app = typer.Typer(help="Evaluation operations")
 cli_app.add_typer(paper_app, name="paper")
 cli_app.add_typer(eval_app, name="eval")
 PAPER_IDS_OPTION = typer.Option(None, "--paper-ids", "--paper-id")
+LOCOMO_OUT_FILE_OPTION = typer.Option(..., "--out-file")
+LOCOMO_QUESTION_COUNT_OPTION = typer.Option(150, "--question-count", min=5)
+LOCOMO_SAMPLE_ID_OPTION = typer.Option("scholarmind_locomo_150", "--sample-id")
+LOCOMO_DATA_FILE_OPTION = typer.Option(..., "--data-file")
+LOCOMO_USER_ID_OPTION = typer.Option("scholarmind-locomo-user", "--user-id")
+LOCOMO_PREDICTION_KEY_OPTION = typer.Option(
+    "scholarmind_prediction",
+    "--prediction-key",
+)
+LOCOMO_LIMIT_OPTION = typer.Option(None, "--limit", min=1)
+LOCOMO_PREDICTION_FILE_OPTION = typer.Option(..., "--prediction-file")
+LOCOMO_OPTIONAL_OUT_FILE_OPTION = typer.Option(None, "--out-file")
+LOCOMO_STATS_FILE_OPTION = typer.Option(None, "--stats-file")
+LOCOMO_MODEL_NAME_OPTION = typer.Option("scholarmind", "--model-name")
 
 
 def dump(value: Any) -> None:
@@ -226,6 +247,66 @@ def eval_memory(batch_id: str = typer.Option(..., "--batch-id")):
 def eval_memory_report(report_id: str = typer.Option(..., "--report-id")):
     container = get_container()
     dump(container.memory_eval_v2_service.get_report(report_id))
+
+
+@eval_app.command("locomo-build")
+def eval_locomo_build(
+    out_file: Path = LOCOMO_OUT_FILE_OPTION,
+    question_count: int = LOCOMO_QUESTION_COUNT_OPTION,
+    sample_id: str = LOCOMO_SAMPLE_ID_OPTION,
+):
+    container = get_container()
+    dataset = build_memory_locomo_dataset(
+        container.paper_repository,
+        question_count=question_count,
+        sample_id=sample_id,
+    )
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_file.write_text(json.dumps(dataset, ensure_ascii=False, indent=2), encoding="utf-8")
+    dump({"path": str(out_file), **validate_locomo_dataset(dataset)})
+
+
+@eval_app.command("locomo-run")
+def eval_locomo_run(
+    data_file: Path = LOCOMO_DATA_FILE_OPTION,
+    out_file: Path = LOCOMO_OUT_FILE_OPTION,
+    user_id: str = LOCOMO_USER_ID_OPTION,
+    prediction_key: str = LOCOMO_PREDICTION_KEY_OPTION,
+    limit: int | None = LOCOMO_LIMIT_OPTION,
+):
+    container = get_container()
+    samples = json.loads(data_file.read_text(encoding="utf-8"))
+    predictions = anyio.run(
+        run_locomo_qa,
+        container.research_service,
+        samples,
+        user_id,
+        prediction_key,
+        limit,
+        out_file,
+    )
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_file.write_text(json.dumps(predictions, ensure_ascii=False, indent=2), encoding="utf-8")
+    dump({"path": str(out_file), **validate_locomo_dataset(predictions)})
+
+
+@eval_app.command("locomo-score")
+def eval_locomo_score(
+    prediction_file: Path = LOCOMO_PREDICTION_FILE_OPTION,
+    out_file: Path | None = LOCOMO_OPTIONAL_OUT_FILE_OPTION,
+    stats_file: Path | None = LOCOMO_STATS_FILE_OPTION,
+    prediction_key: str = LOCOMO_PREDICTION_KEY_OPTION,
+    model_name: str = LOCOMO_MODEL_NAME_OPTION,
+):
+    dump(
+        score_prediction_file(
+            prediction_file,
+            out_file=out_file,
+            stats_file=stats_file,
+            prediction_key=prediction_key,
+            model_name=model_name,
+        )
+    )
 
 
 @eval_app.command("memory-library-export")

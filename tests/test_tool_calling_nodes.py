@@ -451,6 +451,33 @@ async def test_researcher_node_can_answer_qa_without_using_tools():
     assert result["draft"] == "你好，我可以直接和你聊天。"
 
 
+async def test_researcher_node_uses_memory_context_when_qa_model_returns_no_information():
+    repository = _PaperRepository()
+    rag_tool = build_retrieval_tools(_ResearchRagEngine())["rag_retrieve"]
+    related_tool = build_paper_tools(repository)["related_papers"]
+    llm = _ToolCallingLLM([AIMessage(content="No information available.")])
+    node = make_research_node(repository, llm, [rag_tool, related_tool], _PromptCatalog())
+
+    result = await node(
+        {
+            "query": "回忆 ScholarMind 项目 case_023 的论文角色和默认栏目",
+            "query_type": "qa",
+            "request_payload": {"rag_strategy": "hybrid", "top_k": 4},
+            "memory_context": (
+                "- case_023 role: survey seed\n"
+                "- case_023 labels: math intuition, engineering steps"
+            ),
+            "agent_trace": [],
+            "messages": [],
+        }
+    )
+
+    assert "Memory context:" in llm.invocations[0][1].content
+    assert "case_023 role: survey seed" in llm.invocations[0][1].content
+    assert "survey seed" in result["draft"]
+    assert "No information available" not in result["draft"]
+
+
 async def test_researcher_node_ignores_parent_tool_history_when_collecting_current_round_results():
     repository = _PaperRepository()
     rag_tool = build_retrieval_tools(_ResearchRagEngine())["rag_retrieve"]

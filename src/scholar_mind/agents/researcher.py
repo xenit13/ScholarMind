@@ -18,7 +18,7 @@ from scholar_mind.agents.common import (
     route_tool_calls,
     usage_from_result,
 )
-from scholar_mind.agents.state import request_value, telemetry_value
+from scholar_mind.agents.state import memory_value, request_value, telemetry_value
 from scholar_mind.eval.context import get_eval_context
 from scholar_mind.models.domain import QueryType
 from scholar_mind.models.eval_models import RagRetrievalEventV2
@@ -39,6 +39,7 @@ class _ResearchSubgraphState(TypedDict):
     date_to: str | None
     source_paper_id: str | None
     source_paper_abstract: str
+    memory_context: str
     caller_agent: str
     llm_usage: NotRequired[dict[str, float]]
 
@@ -102,9 +103,11 @@ def _build_research_subgraph(llm, tools, researcher_prompt):
         system_prompt = (
             f"{researcher_prompt}\n\n"
             "## Runtime Tool Policy\n"
-            "- Use the available retrieval tools only when they materially improve answer quality.\n"
+            "- Use the available retrieval tools only when they materially improve "
+            "answer quality.\n"
             "- Prefer `rag_retrieve` for evidence collection.\n"
-            "- Use `related_papers` only when a source paper is provided and the related set is useful.\n"
+            "- Use `related_papers` only when a source paper is provided and the "
+            "related set is useful.\n"
             "- Never fabricate tool outputs or claim retrieval happened when it did not.\n"
             "\n## Prohibitions\n"
             "- Do not keep calling tools after evidence is sufficient.\n"
@@ -113,8 +116,12 @@ def _build_research_subgraph(llm, tools, researcher_prompt):
         if state["query_type"] == QueryType.QA.value:
             system_prompt += (
                 "\n## Runtime Stop Condition\n"
+                "- Treat Memory context as valid user-specific evidence.\n"
+                "- If Memory context directly answers the query, answer from it without "
+                "calling tools.\n"
                 "- When the available ToolMessages are sufficient, stop calling tools.\n"
-                "- Answer the user query directly in concise prose grounded in the retrieved evidence."
+                "- Answer the user query directly in concise prose grounded in "
+                "retrieved evidence or Memory context."
             )
         else:
             system_prompt += (
@@ -133,7 +140,8 @@ def _build_research_subgraph(llm, tools, researcher_prompt):
             f"Date from: {state.get('date_from') or '(none)'}\n"
             f"Date to: {state.get('date_to') or '(none)'}\n"
             f"Source paper id: {state.get('source_paper_id') or '(none)'}\n"
-            f"Source paper abstract: {state.get('source_paper_abstract') or '(none)'}"
+            f"Source paper abstract: {state.get('source_paper_abstract') or '(none)'}\n"
+            f"Memory context:\n{state.get('memory_context') or '(none)'}"
         )
         subgraph_messages = state.get("messages", [])
         invoke_started = perf_counter()
@@ -203,10 +211,15 @@ def make_research_primary_node(paper_repository, llm, tools, prompt_catalog):
                 "top_k": payload.get("max_papers", payload.get("top_k", FINAL_CITATION_TOP_K)),
                 "paper_ids": payload.get("paper_ids", []),
                 "categories": payload.get("categories", []),
-                "date_from": payload.get("date_from").isoformat() if payload.get("date_from") else None,
+                "date_from": (
+                    payload.get("date_from").isoformat()
+                    if payload.get("date_from")
+                    else None
+                ),
                 "date_to": payload.get("date_to").isoformat() if payload.get("date_to") else None,
                 "source_paper_id": payload.get("paper_id"),
                 "source_paper_abstract": source_paper.abstract if source_paper else "",
+                "memory_context": memory_value(state, "context", ""),
                 "caller_agent": "researcher",
             }
         )
@@ -236,6 +249,7 @@ def make_research_primary_node(paper_repository, llm, tools, prompt_catalog):
                 str(getattr(final_response, "content", "")).strip(),
                 query,
                 list(dedup.values()),
+                memory_value(state, "context", ""),
             )
         result = {
             "retrieval": {
@@ -295,7 +309,11 @@ def make_research_fallback_node(paper_repository, rag_engine):
                 "rag_latency_ms": latency,
             },
             "output": {
-                "draft": _qa_draft_from_chunks(query, chunks)
+                "draft": _qa_draft_from_chunks_or_memory(
+                    query,
+                    chunks,
+                    memory_value(state, "context", ""),
+                )
                 if query_type == QueryType.QA.value
                 else None
             },
@@ -346,10 +364,44 @@ def make_idea_research_node(rag_engine):
     return idea_research_node
 
 
-def _select_qa_draft(model_text: str, query: str, chunks: list[dict]) -> str:
+def _select_qa_draft(
+    model_text: str,
+    query: str,
+    chunks: list[dict],
+    memory_context: str = "",
+) -> str:
+    if _is_no_information_answer(model_text) and memory_context.strip():
+        return memory_context.strip()
     if _is_grounded_qa_answer(model_text):
         return model_text
-    return _qa_draft_from_chunks(query, chunks)
+    return _qa_draft_from_chunks_or_memory(query, chunks, memory_context)
+
+
+def _qa_draft_from_chunks_or_memory(
+    query: str,
+    chunks: list[dict],
+    memory_context: str,
+) -> str:
+    chunk_draft = _qa_draft_from_chunks(query, chunks)
+    if chunk_draft:
+        return chunk_draft
+    return memory_context.strip()
+
+
+def _is_no_information_answer(text: str) -> bool:
+    lowered = text.strip().lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "no information available",
+            "not enough information",
+            "cannot determine",
+            "unable to determine",
+            "无法确定",
+            "未提及",
+            "没有足够",
+        )
+    )
 
 
 def _is_grounded_qa_answer(text: str) -> bool:

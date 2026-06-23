@@ -102,6 +102,20 @@ class _RecordingMemoryManager:
         return 0
 
 
+class _RecordingPendingBuffer:
+    def __init__(self):
+        self.rounds: list[dict] = []
+
+    def add_round(self, **kwargs):
+        self.rounds.append(kwargs)
+
+
+class _RecordingMemoryManagerWithPending(_RecordingMemoryManager):
+    def __init__(self, usage: dict[str, float]):
+        super().__init__(usage)
+        self.pending_buffer = _RecordingPendingBuffer()
+
+
 class _StubOrchestrator:
     async def get_state(self, _session_id: str):
         return {}
@@ -350,6 +364,90 @@ async def test_research_service_skips_request_scoped_memory_extraction_without_v
 
     assert memory_manager.logged_rounds
     assert memory_manager.extracted_user_ids == []
+
+
+def test_research_service_payload_can_disable_memory_extraction():
+    memory_manager = _RecordingMemoryManagerWithPending(
+        {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    )
+    dispatched = []
+    service = ResearchService(
+        settings=SimpleNamespace(default_top_k=8, eval_enabled=False),
+        session_repository=_StubSessionRepository(),
+        metrics_repository=_RecordingMetricsRepository(),
+        memory_manager=memory_manager,
+        orchestrator=_StubOrchestrator(),
+    )
+    service._dispatch_request_memory_extraction = lambda **kwargs: dispatched.append(kwargs)
+
+    service._persist_state(
+        user_id="u1",
+        session_id="s1",
+        request_id="req1",
+        query="What should I remember?",
+        request_payload={"memory_extraction_enabled": False},
+        previous_state={"messages": []},
+        result={
+            "session_id": "s1",
+            "messages": [
+                HumanMessage(content="What should I remember?"),
+                AIMessage(content="answer"),
+            ],
+            "final_answer": "answer",
+            "citations": [],
+            "related_papers": [],
+            "retrieved_chunks": [],
+            "rag_latency_ms": 0,
+            "agent_trace": [],
+            "llm_usage": {},
+        },
+    )
+
+    assert memory_manager.pending_buffer.rounds == []
+    assert memory_manager.logged_rounds == []
+    assert dispatched == []
+
+
+def test_research_service_payload_can_disable_request_scoped_memory_extraction_only():
+    memory_manager = _RecordingMemoryManagerWithPending(
+        {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    )
+    dispatched = []
+    service = ResearchService(
+        settings=SimpleNamespace(default_top_k=8, eval_enabled=False),
+        session_repository=_StubSessionRepository(),
+        metrics_repository=_RecordingMetricsRepository(),
+        memory_manager=memory_manager,
+        orchestrator=_StubOrchestrator(),
+    )
+    service._dispatch_request_memory_extraction = lambda **kwargs: dispatched.append(kwargs)
+
+    service._persist_state(
+        user_id="u1",
+        session_id="s1",
+        request_id="req1",
+        query="Please remember this.",
+        request_payload={"request_memory_extraction_enabled": False},
+        previous_state={"messages": []},
+        result={
+            "session_id": "s1",
+            "messages": [
+                HumanMessage(content="Please remember this."),
+                AIMessage(content="answer"),
+            ],
+            "final_answer": "answer",
+            "citations": [],
+            "related_papers": [],
+            "retrieved_chunks": [],
+            "rag_latency_ms": 0,
+            "agent_trace": [],
+            "llm_usage": {},
+        },
+    )
+
+    assert len(memory_manager.pending_buffer.rounds) == 1
+    assert len(memory_manager.logged_rounds) == 1
+    assert dispatched == []
 
 
 def test_memory_manager_records_memory_dimension_metrics():

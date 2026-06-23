@@ -656,7 +656,15 @@ class MemoryOperationApplier:
             return None
 
         candidate_text = _normalize_memory_text(candidate.content)
-        for record in records:
+        comparable_records = [
+            record
+            for record in records
+            if not _has_distinct_memory_anchors(candidate.content, record.content)
+        ]
+        if not comparable_records:
+            return None
+
+        for record in comparable_records:
             if _normalize_memory_text(record.content) == candidate_text:
                 return MemoryMatch(
                     record=record,
@@ -666,7 +674,7 @@ class MemoryOperationApplier:
                     reason="candidate exactly matches existing memory",
                 )
 
-        lexical_match = self._find_lexical_match(candidate, records)
+        lexical_match = self._find_lexical_match(candidate, comparable_records)
         if lexical_match is not None:
             return lexical_match
 
@@ -676,7 +684,7 @@ class MemoryOperationApplier:
 
         best_record: StructuredMemoryRecord | None = None
         best_score = -1.0
-        for record in records:
+        for record in comparable_records:
             record_vector = self._safe_embed(record.content)
             if record_vector is None:
                 continue
@@ -814,6 +822,45 @@ def _normalize_memory_text(text: str) -> str:
     cleaned = text.strip().lower()
     cleaned = re.sub(r"\s+", "", cleaned)
     return re.sub(r"[，。！？!?,.:：;；、\"'“”‘’()（）\[\]{}<>《》]", "", cleaned)
+
+
+def _has_distinct_memory_anchors(left: str, right: str) -> bool:
+    left_anchors = _memory_anchors(left)
+    right_anchors = _memory_anchors(right)
+    if left_anchors["cases"] and right_anchors["cases"]:
+        if left_anchors["cases"] != right_anchors["cases"]:
+            return True
+    if left_anchors["titles"] and right_anchors["titles"]:
+        return left_anchors["titles"] != right_anchors["titles"]
+    return False
+
+
+def _memory_anchors(text: str) -> dict[str, set[str]]:
+    return {
+        "cases": _case_anchors(text),
+        "titles": _title_anchors(text),
+    }
+
+
+def _case_anchors(text: str) -> set[str]:
+    return {
+        f"case_{int(match.group(1)):03d}"
+        for match in re.finditer(r"\bcase[_\-\s]*(\d{1,4})\b", text, flags=re.IGNORECASE)
+    }
+
+
+def _title_anchors(text: str) -> set[str]:
+    titles = set(re.findall(r"《([^》]+)》", text))
+    quoted = re.findall(r"['\"“”‘’]([^'\"“”‘’]{16,180})['\"“”‘’]", text)
+    titles.update(item for item in quoted if _looks_like_title_anchor(item))
+    return {_normalize_memory_text(title) for title in titles if _normalize_memory_text(title)}
+
+
+def _looks_like_title_anchor(text: str) -> bool:
+    stripped = text.strip()
+    if len(stripped) < 16:
+        return False
+    return bool(re.search(r"\s", stripped) or ":" in stripped or "-" in stripped)
 
 
 def _candidate_match_types(memory_type: str) -> set[str]:

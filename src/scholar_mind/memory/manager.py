@@ -43,6 +43,12 @@ from scholar_mind.utils.token_estimator import estimate_text_tokens
 MEMORY_DUPLICATE_SCORE_THRESHOLD = 0.95
 ROUND_MEMORY_DEDUP_SCORE_THRESHOLD = 0.9
 ROUND_META_PREFIX = "__ROUND_META__"
+CASE_ANCHOR_RE = re.compile(r"\bcase_\d{3,}\b", flags=re.IGNORECASE)
+TITLE_ANCHOR_RE = re.compile(r"《([^》]{6,200})》")
+TOPIC_ANCHOR_RE = re.compile(
+    r"\b[a-z][a-z-]{0,12}\.[a-z0-9.-]+ [a-z][a-z-]*(?: [a-z][a-z-]*){0,4}",
+    flags=re.IGNORECASE,
+)
 
 
 def _local_now() -> datetime:
@@ -243,7 +249,7 @@ class MemoryManager:
     ) -> tuple[str, int]:
         retrieved_memory_ids: list[str] = []
         retrieved_scores: list[float] = []
-        candidates: list[MemoryScoreInput] = []
+        candidates_by_id: dict[str, MemoryScoreInput] = {}
         for item in raw_hits:
             if not item.payload:
                 continue
@@ -260,7 +266,21 @@ class MemoryManager:
             status = record.status.value if hasattr(record.status, "value") else str(record.status)
             if status != MemoryStatus.ACTIVE.value:
                 continue
-            candidates.append(MemoryScoreInput(record=record, semantic_score=score))
+            boosted_score = score + _memory_anchor_boost(current_query, record.content)
+            existing = candidates_by_id.get(record_id)
+            if existing is None or boosted_score > existing.semantic_score:
+                candidates_by_id[record_id] = MemoryScoreInput(
+                    record=record,
+                    semantic_score=boosted_score,
+                )
+        for candidate in self._lexical_anchor_candidates(
+            user_id=user_id,
+            current_query=current_query,
+            existing_memory_ids=set(candidates_by_id),
+            min_score=min_score,
+        ):
+            candidates_by_id[candidate.record.memory_id] = candidate
+        candidates = list(candidates_by_id.values())
         decay_enabled = bool(getattr(self.settings, "memory_decay_enabled", True))
         ranked = rank_memory_candidates(
             candidates,
@@ -326,6 +346,31 @@ class MemoryManager:
             source_memory_ids=injected_memory_ids,
         )
         return injected_text, len(lines)
+
+    def _lexical_anchor_candidates(
+        self,
+        *,
+        user_id: str,
+        current_query: str,
+        existing_memory_ids: set[str],
+        min_score: float,
+    ) -> list[MemoryScoreInput]:
+        if self.memory_repository is None or not _memory_query_has_anchors(current_query):
+            return []
+        candidates = []
+        for record in self.memory_repository.list_active(user_id):
+            if record.memory_id in existing_memory_ids:
+                continue
+            boost = _memory_anchor_boost(current_query, record.content)
+            if boost <= 0:
+                continue
+            candidates.append(
+                MemoryScoreInput(
+                    record=record,
+                    semantic_score=float(min_score) + boost,
+                )
+            )
+        return candidates
 
     async def save(
         self, user_id: str, content: str, source: str = "conversation"
@@ -953,6 +998,45 @@ def _recover_memory_extraction_output(raw) -> MemoryExtractionOutput | None:
 
 def _payload_memory_id(payload: dict) -> str:
     return str(payload.get("memory_id") or payload.get("record_id") or "")
+
+
+def _memory_query_has_anchors(query: str) -> bool:
+    anchors = _memory_query_anchors(query)
+    return any(anchors.values())
+
+
+def _memory_anchor_boost(query: str, content: str) -> float:
+    anchors = _memory_query_anchors(query)
+    if not any(anchors.values()):
+        return 0.0
+    normalized_content = " ".join(content.lower().split())
+    boost = 0.0
+    for case_id in anchors["case_ids"]:
+        if case_id in normalized_content:
+            boost += 1.4
+    for title in anchors["titles"]:
+        if title in normalized_content:
+            boost += 1.1
+    for topic in anchors["topics"]:
+        if topic in normalized_content:
+            boost += 1.2
+    return boost
+
+
+def _memory_query_anchors(query: str) -> dict[str, set[str]]:
+    return {
+        "case_ids": {item.lower() for item in CASE_ANCHOR_RE.findall(query)},
+        "titles": {
+            " ".join(item.lower().split())
+            for item in TITLE_ANCHOR_RE.findall(query)
+            if item.strip()
+        },
+        "topics": {
+            " ".join(item.lower().split())
+            for item in TOPIC_ANCHOR_RE.findall(query)
+            if item.strip()
+        },
+    }
 
 
 def _round_session_id(round_messages: list[dict]) -> str | None:
