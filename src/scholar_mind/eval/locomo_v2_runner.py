@@ -13,7 +13,10 @@ import logging
 import re
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Protocol
+
+import httpx
 
 from scholar_mind.models.domain import QueryType
 from scholar_mind.rag.top_k import FINAL_CITATION_TOP_K
@@ -41,6 +44,86 @@ class ResearchServiceLike(Protocol):
         query_type: QueryType | None,
         request_payload: dict,
     ) -> AsyncIterator[tuple[str, Any]]: ...
+
+
+class HttpResearchServiceClient:
+    """Small adapter exposing the ResearchService stream surface over HTTP."""
+
+    def __init__(
+        self,
+        api_url: str,
+        *,
+        http_client_factory=httpx.AsyncClient,
+        timeout: float | None = None,
+    ):
+        self.api_url = api_url.rstrip("/")
+        self._http_client_factory = http_client_factory
+        self._timeout = timeout
+        self.settings = SimpleNamespace(final_citation_top_k=FINAL_CITATION_TOP_K)
+
+    async def stream(
+        self,
+        *,
+        query: str,
+        user_id: str,
+        session_id: str | None,
+        query_type: QueryType | None,
+        request_payload: dict,
+    ) -> AsyncIterator[tuple[str, Any]]:
+        endpoint = "ask/stream" if query_type == QueryType.QA else "stream"
+        body = {
+            "query": query,
+            "user_id": user_id,
+            "session_id": session_id,
+            "paper_ids": request_payload.get("paper_ids", []),
+            "rag_strategy": request_payload.get("rag_strategy", "hybrid"),
+            "conditional_memory_injection": bool(
+                request_payload.get("conditional_memory_injection", False)
+            ),
+        }
+        for key in (
+            "memory_extraction_enabled",
+            "request_memory_extraction_enabled",
+            "wait_for_pending_extractions",
+        ):
+            if key in request_payload:
+                body[key] = request_payload[key]
+
+        async with self._http_client_factory(timeout=self._timeout) as client:
+            async with client.stream(
+                "POST",
+                f"{self.api_url}/api/v1/research/{endpoint}",
+                json=body,
+            ) as response:
+                response.raise_for_status()
+                async for event in _iter_sse_events(response.aiter_lines()):
+                    yield event
+
+
+async def _iter_sse_events(lines: AsyncIterator[str]) -> AsyncIterator[tuple[str, Any]]:
+    event_name = "message"
+    data_lines: list[str] = []
+    async for line in lines:
+        if not line:
+            if data_lines:
+                yield event_name, _parse_sse_data("\n".join(data_lines))
+            event_name = "message"
+            data_lines = []
+            continue
+        if line.startswith("event:"):
+            event_name = line.removeprefix("event:").strip()
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line.removeprefix("data:").strip())
+    if data_lines:
+        yield event_name, _parse_sse_data("\n".join(data_lines))
+
+
+def _parse_sse_data(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw": text}
 
 
 def _iter_memory_bearing_turns(
@@ -134,6 +217,7 @@ async def replay_memory_turns(
                 "conditional_memory_injection": False,
                 "memory_extraction_enabled": True,
                 "request_memory_extraction_enabled": True,
+                "wait_for_pending_extractions": True,
             },
         ):
             continue

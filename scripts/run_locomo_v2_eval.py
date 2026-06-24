@@ -3,6 +3,7 @@
 
 Usage:
     PYTHONPATH=src uv run python scripts/run_locomo_v2_eval.py \\
+        --api-url http://127.0.0.1:8000 \\
         --samples data/eval/locomo_build/scholarmind_locomo_v2.json \\
         --out data/eval/locomo_build/predictions.json \\
         [--limit 60]
@@ -26,10 +27,12 @@ if str(SRC_DIR) not in sys.path:
 
 import anyio  # noqa: E402
 
-from scholar_mind.app import get_container  # noqa: E402
 from scholar_mind.config.settings import get_settings  # noqa: E402
 from scholar_mind.eval.locomo import score_locomo_samples  # noqa: E402
-from scholar_mind.eval.locomo_v2_runner import run_locomo_v2_eval  # noqa: E402
+from scholar_mind.eval.locomo_v2_runner import (  # noqa: E402
+    HttpResearchServiceClient,
+    run_locomo_v2_eval,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,6 +75,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Incremental progress file (overwritten each QA)",
     )
     parser.add_argument(
+        "--api-url",
+        required=True,
+        help="Already running ScholarMind HTTP API base URL",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
@@ -103,8 +111,8 @@ async def main(args: argparse.Namespace) -> int:
     if args.limit:
         logger.info("limiting to %d QAs (smoke test)", args.limit)
 
-    container = get_container()
-    research_service = container.research_service
+    logger.info("using HTTP API at %s", args.api_url)
+    research_service = HttpResearchServiceClient(args.api_url)
 
     predictions = await run_locomo_v2_eval(
         research_service=research_service,

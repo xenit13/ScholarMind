@@ -601,6 +601,9 @@ class AskRequest(BaseModel):
     paper_ids: list[str] = Field(default_factory=list)
     rag_strategy: RetrievalStrategyName = RetrievalStrategyName.HYBRID
     conditional_memory_injection: bool = False
+    memory_extraction_enabled: bool | None = None
+    request_memory_extraction_enabled: bool | None = None
+    wait_for_pending_extractions: bool = False
 
 
 class ChatRequest(BaseModel):
@@ -610,6 +613,9 @@ class ChatRequest(BaseModel):
     paper_ids: list[str] = Field(default_factory=list)
     rag_strategy: RetrievalStrategyName = RetrievalStrategyName.HYBRID
     conditional_memory_injection: bool = False
+    memory_extraction_enabled: bool | None = None
+    request_memory_extraction_enabled: bool | None = None
+    wait_for_pending_extractions: bool = False
 
 
 class IdeaNoveltyRequest(BaseModel):

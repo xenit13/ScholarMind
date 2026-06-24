@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from scholar_mind.eval.locomo_v2_runner import (
+    HttpResearchServiceClient,
     _iter_memory_bearing_turns,
     ask_question,
     replay_memory_turns,
@@ -86,6 +87,48 @@ class _FakeResearchService:
         if request_payload.get("memory_extraction_enabled"):
             return
         yield "answer", {"answer": self.answer, "citations": self.citations}
+
+
+class _FakeHttpStream:
+    def __init__(self, lines: list[str]):
+        self.lines = lines
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return False
+
+    def raise_for_status(self) -> None:
+        return None
+
+    async def aiter_lines(self):
+        for line in self.lines:
+            yield line
+
+
+class _FakeHttpClient:
+    calls: list[dict[str, Any]] = []
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return False
+
+    def stream(self, method: str, url: str, *, json: dict[str, Any]):
+        self.calls.append({"method": method, "url": url, "json": json})
+        return _FakeHttpStream([
+            "event: answer",
+            (
+                'data: {"answer": "http answer", '
+                '"citations": [{"paper_id": "p1", "section": "abstract"}]}'
+            ),
+            "",
+        ])
 
 
 # ---------- _iter_memory_bearing_turns ----------
@@ -189,6 +232,61 @@ async def test_replay_calls_wait_for_pending_extractions():
         top_k=4,
     )
     assert wait_calls == [{"timeout": 300.0}]
+
+
+@pytest.mark.asyncio
+async def test_http_research_service_client_posts_stream_payload_and_parses_sse():
+    _FakeHttpClient.calls = []
+    client = HttpResearchServiceClient(
+        "http://api.test",
+        http_client_factory=_FakeHttpClient,
+    )
+
+    events = [
+        item
+        async for item in client.stream(
+            query="q",
+            user_id="u1",
+            session_id="s1",
+            query_type=None,
+            request_payload={
+                "paper_ids": [],
+                "rag_strategy": "hybrid",
+                "top_k": 4,
+                "conditional_memory_injection": False,
+                "memory_extraction_enabled": True,
+                "request_memory_extraction_enabled": True,
+                "wait_for_pending_extractions": True,
+            },
+        )
+    ]
+
+    assert events == [
+        (
+            "answer",
+            {
+                "answer": "http answer",
+                "citations": [{"paper_id": "p1", "section": "abstract"}],
+            },
+        )
+    ]
+    assert _FakeHttpClient.calls == [
+        {
+            "method": "POST",
+            "url": "http://api.test/api/v1/research/stream",
+            "json": {
+                "query": "q",
+                "user_id": "u1",
+                "session_id": "s1",
+                "paper_ids": [],
+                "rag_strategy": "hybrid",
+                "conditional_memory_injection": False,
+                "memory_extraction_enabled": True,
+                "request_memory_extraction_enabled": True,
+                "wait_for_pending_extractions": True,
+            },
+        }
+    ]
 
 
 # ---------- ask_question ----------
