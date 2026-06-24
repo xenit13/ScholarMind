@@ -618,6 +618,22 @@ class ChatRequest(BaseModel):
     wait_for_pending_extractions: bool = False
 
 
+class TranscriptMemoryMessage(BaseModel):
+    message: dict[str, Any]
+    message_id: str
+    thread_id: str | None = None
+    round_index: int | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TranscriptMemoryExtractionRequest(BaseModel):
+    user_id: str
+    request_id: str
+    session_id: str
+    round_messages: list[TranscriptMemoryMessage] = Field(min_length=1)
+    wait_for_pending_extractions: bool = True
+
+
 class IdeaNoveltyRequest(BaseModel):
     idea: str = Field(min_length=5)
     user_id: str

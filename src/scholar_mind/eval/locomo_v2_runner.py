@@ -1,9 +1,8 @@
 """End-to-end LOCOMO v2 evaluation runner.
 
-Replays a persona's memory-bearing conversation turns through ResearchService
-to populate memory, then asks each QA and captures the prediction. Designed
-for the schema produced by scholar_mind.eval.locomo_build (Turn.metadata.seed_id
-identifies memory-bearing turns; Turn.metadata.is_distractor flags distractors).
+Imports a persona's transcript rounds into memory, then asks each QA and
+captures the prediction. Designed for the schema produced by
+scholar_mind.eval.locomo_build.
 """
 
 from __future__ import annotations
@@ -12,14 +11,18 @@ import json
 import logging
 import re
 from collections.abc import AsyncIterator
+from inspect import isawaitable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Protocol
+from uuid import uuid4
 
 import httpx
+from langchain_core.messages import AIMessage, HumanMessage
 
 from scholar_mind.models.domain import QueryType
 from scholar_mind.rag.top_k import FINAL_CITATION_TOP_K
+from scholar_mind.utils.messages import serialize_messages
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,15 @@ class ResearchServiceLike(Protocol):
         query_type: QueryType | None,
         request_payload: dict,
     ) -> AsyncIterator[tuple[str, Any]]: ...
+
+    def extract_transcript_memories(
+        self,
+        *,
+        user_id: str,
+        request_id: str,
+        session_id: str,
+        round_messages: list[dict[str, Any]],
+    ) -> Any: ...
 
 
 class HttpResearchServiceClient:
@@ -99,6 +111,32 @@ class HttpResearchServiceClient:
                 async for event in _iter_sse_events(response.aiter_lines()):
                     yield event
 
+    async def extract_transcript_memories(
+        self,
+        *,
+        user_id: str,
+        request_id: str,
+        session_id: str,
+        round_messages: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        body = {
+            "user_id": user_id,
+            "request_id": request_id,
+            "session_id": session_id,
+            "round_messages": round_messages,
+            "wait_for_pending_extractions": True,
+        }
+        async with self._http_client_factory(timeout=self._timeout) as client:
+            response = await client.post(
+                f"{self.api_url}/api/v1/research/memory/transcript",
+                json=body,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if isinstance(payload, dict) and "data" in payload:
+                return payload["data"]
+            return payload
+
 
 async def _iter_sse_events(lines: AsyncIterator[str]) -> AsyncIterator[tuple[str, Any]]:
     event_name = "message"
@@ -126,16 +164,11 @@ def _parse_sse_data(text: str) -> Any:
         return {"raw": text}
 
 
-def _iter_memory_bearing_turns(
+def _iter_transcript_rounds(
     conversation: dict[str, Any],
-) -> list[tuple[int, dict[str, Any]]]:
-    """Yield (session_index, turn) for user-side memory-bearing turns.
-
-    Memory-bearing means metadata.seed_id is not null AND metadata.is_distractor
-    is False. Distractor turns and assistant turns are skipped — only user input
-    seeds memory extraction.
-    """
-    turns: list[tuple[int, dict[str, Any]]] = []
+) -> list[tuple[int, str, list[dict[str, Any]]]]:
+    """Yield transcript rounds as one user turn plus following assistant turns."""
+    rounds: list[tuple[int, str, list[dict[str, Any]]]] = []
     session_numbers = sorted(
         int(match.group(1))
         for key in conversation
@@ -143,20 +176,69 @@ def _iter_memory_bearing_turns(
         and isinstance(conversation.get(key), list)
     )
     for session_index in session_numbers:
+        session_date = str(conversation.get(f"session_{session_index}_date_time", ""))
+        current_round: list[dict[str, Any]] = []
         for turn in conversation.get(f"session_{session_index}", []):
             if not isinstance(turn, dict):
                 continue
-            metadata = turn.get("metadata", {}) or {}
-            if metadata.get("is_distractor"):
-                continue
-            if metadata.get("seed_id") is None:
-                continue
-            if "user" not in str(turn.get("speaker", "")).lower():
-                continue
+            speaker = str(turn.get("speaker", "")).lower()
             text = str(turn.get("text", "")).strip()
-            if text:
-                turns.append((session_index, turn))
-    return turns
+            if not text:
+                continue
+            if "user" in speaker:
+                if current_round:
+                    rounds.append((session_index, session_date, current_round))
+                current_round = [turn]
+            elif "assistant" in speaker and current_round:
+                current_round.append(turn)
+        if current_round:
+            rounds.append((session_index, session_date, current_round))
+    return rounds
+
+
+def _round_messages_payload(
+    *,
+    turns: list[dict[str, Any]],
+    session_id: str,
+    session_index: int,
+    session_date: str,
+    round_index: int,
+) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for idx, turn in enumerate(turns):
+        speaker = str(turn.get("speaker", "")).lower()
+        content = str(turn.get("text", "")).strip()
+        if not content:
+            continue
+        message = (
+            HumanMessage(content=content)
+            if "user" in speaker
+            else AIMessage(content=content)
+        )
+        metadata = dict(turn.get("metadata", {}) or {})
+        metadata.update(
+            {
+                "speaker": turn.get("speaker", ""),
+                "session_index": session_index,
+                "session_date": session_date,
+            }
+        )
+        payload.append(
+            {
+                "message": serialize_messages([message])[0],
+                "message_id": str(turn.get("dia_id") or f"s{session_index}:{idx + 1}"),
+                "thread_id": session_id,
+                "round_index": round_index,
+                "metadata": metadata,
+            }
+        )
+    return payload
+
+
+async def _resolve(value: Any) -> Any:
+    if isawaitable(value):
+        return await value
+    return value
 
 
 async def _drain_stream(stream: AsyncIterator[tuple[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
@@ -197,30 +279,31 @@ async def replay_memory_turns(
     top_k: int,
     extraction_timeout: float = 300.0,
 ) -> int:
-    """Feed memory-bearing user turns into the memory system, then wait for
-    all in-flight extraction Celery tasks to complete.
+    """Import transcript rounds into the memory system, then wait for extraction.
 
-    Returns the count of turns replayed (for logging/progress reporting).
+    Returns the count of transcript rounds replayed (for logging/progress reporting).
     """
+    _ = top_k
     replays = 0
-    for session_index, turn in _iter_memory_bearing_turns(conversation):
-        session_id = f"{user_id}-seed-s{session_index:03d}-{replays:04d}"
-        async for _event, _data in research_service.stream(
-            query=str(turn["text"]),
-            user_id=user_id,
-            session_id=session_id,
-            query_type=QueryType.QA,
-            request_payload={
-                "paper_ids": [],
-                "rag_strategy": "hybrid",
-                "top_k": top_k,
-                "conditional_memory_injection": False,
-                "memory_extraction_enabled": True,
-                "request_memory_extraction_enabled": True,
-                "wait_for_pending_extractions": True,
-            },
-        ):
+    replay_session_id = f"{user_id}-locomo-replay"
+    for session_index, session_date, turns in _iter_transcript_rounds(conversation):
+        round_messages = _round_messages_payload(
+            turns=turns,
+            session_id=replay_session_id,
+            session_index=session_index,
+            session_date=session_date,
+            round_index=replays + 1,
+        )
+        if not round_messages:
             continue
+        await _resolve(
+            research_service.extract_transcript_memories(
+                request_id=f"locomo-replay-{uuid4().hex}",
+                session_id=replay_session_id,
+                round_messages=round_messages,
+                user_id=user_id,
+            )
+        )
         replays += 1
 
     # Wait for all queued extraction tasks to finish before returning, so the

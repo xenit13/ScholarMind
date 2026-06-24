@@ -6,10 +6,14 @@ import json
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from scholar_mind.api.routes.research import ask_stream
+from scholar_mind.api.routes.research import ask_stream, extract_transcript_memory
 from scholar_mind.app import get_container
 from scholar_mind.asgi import create_app
-from scholar_mind.models.domain import AskRequest, ChatRequest
+from scholar_mind.models.domain import (
+    AskRequest,
+    ChatRequest,
+    TranscriptMemoryExtractionRequest,
+)
 
 REQUEST_TIMEOUT_SECONDS = 15
 
@@ -18,6 +22,7 @@ class _RecordingResearchService:
     def __init__(self):
         self.stream_calls: list[dict] = []
         self.wait_calls: list[dict] = []
+        self.transcript_calls: list[dict] = []
 
     async def stream(self, *, query, user_id, session_id, query_type, request_payload):
         self.stream_calls.append(
@@ -34,6 +39,24 @@ class _RecordingResearchService:
     def wait_for_pending_extractions(self, *, timeout: float = 300.0):
         self.wait_calls.append({"timeout": timeout})
         return {"total": 1, "succeeded": 1, "failed": 0}
+
+    def extract_transcript_memories(
+        self,
+        *,
+        user_id: str,
+        request_id: str,
+        session_id: str,
+        round_messages: list[dict],
+    ):
+        self.transcript_calls.append(
+            {
+                "user_id": user_id,
+                "request_id": request_id,
+                "session_id": session_id,
+                "round_messages": round_messages,
+            }
+        )
+        return {"request_id": request_id, "dispatched": True}
 
 
 class _RecordingContainer:
@@ -116,6 +139,63 @@ async def test_ask_stream_post_passes_memory_flags_and_waits_for_extraction():
     assert request_payload["memory_extraction_enabled"] is True
     assert request_payload["request_memory_extraction_enabled"] is True
     assert request_payload["wait_for_pending_extractions"] is True
+    assert container.research_service.wait_calls == [{"timeout": 300.0}]
+
+
+@pytest.mark.asyncio
+async def test_extract_transcript_memory_endpoint_dispatches_and_waits():
+    container = _RecordingContainer()
+    response = await extract_transcript_memory(
+        TranscriptMemoryExtractionRequest(
+            user_id="tester",
+            request_id="req1",
+            session_id="locomo-replay",
+            round_messages=[
+                {
+                    "message_id": "s1:1",
+                    "message": {"type": "human", "data": {"content": "我偏好短答案"}},
+                    "thread_id": "locomo-replay",
+                    "round_index": 1,
+                    "metadata": {"speaker": "user"},
+                },
+                {
+                    "message_id": "s1:2",
+                    "message": {"type": "ai", "data": {"content": "我会保持简短。"}},
+                    "thread_id": "locomo-replay",
+                    "round_index": 1,
+                    "metadata": {"speaker": "assistant"},
+                },
+            ],
+            wait_for_pending_extractions=True,
+        ),
+        container=container,
+    )
+
+    assert response["success"] is True
+    assert response["data"] == {"request_id": "req1", "dispatched": True}
+    assert container.research_service.transcript_calls == [
+        {
+            "user_id": "tester",
+            "request_id": "req1",
+            "session_id": "locomo-replay",
+            "round_messages": [
+                {
+                    "message": {"type": "human", "data": {"content": "我偏好短答案"}},
+                    "message_id": "s1:1",
+                    "thread_id": "locomo-replay",
+                    "round_index": 1,
+                    "metadata": {"speaker": "user"},
+                },
+                {
+                    "message": {"type": "ai", "data": {"content": "我会保持简短。"}},
+                    "message_id": "s1:2",
+                    "thread_id": "locomo-replay",
+                    "round_index": 1,
+                    "metadata": {"speaker": "assistant"},
+                },
+            ],
+        }
+    ]
     assert container.research_service.wait_calls == [{"timeout": 300.0}]
 
 

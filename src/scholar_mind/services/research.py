@@ -59,6 +59,20 @@ def _enqueue_request_memory_extraction(
         return None
 
 
+def _payload_round_index(round_messages: list[dict]) -> int | None:
+    for item in round_messages:
+        if isinstance(item, dict) and item.get("round_index") is not None:
+            try:
+                return int(item["round_index"])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _is_serialized_round_payload(round_messages: list) -> bool:
+    return all(isinstance(item, dict) and "message" in item for item in round_messages)
+
+
 def _resolve_citation_chunk_ids(
     citations: list[dict],
     retrieved_chunks: list[dict],
@@ -738,6 +752,31 @@ class ResearchService:
                 failed += 1
         return {"total": len(pending), "succeeded": succeeded, "failed": failed}
 
+    def extract_transcript_memories(
+        self,
+        *,
+        user_id: str,
+        request_id: str,
+        session_id: str,
+        round_messages: list[dict],
+    ) -> dict[str, object]:
+        """Dispatch memory extraction for an imported transcript round.
+
+        This bypasses the agent graph; callers have already supplied the
+        serialized transcript messages and stable message ids.
+        """
+        async_result = self._dispatch_request_memory_extraction(
+            user_id=user_id,
+            session_id=session_id,
+            request_id=request_id,
+            round_index=_payload_round_index(round_messages),
+            round_messages=round_messages,
+            explicit_memories=[],
+        )
+        if async_result is not None:
+            self._pending_extractions.append(async_result)
+        return {"request_id": request_id, "dispatched": async_result is not None}
+
     def _dispatch_request_memory_extraction(
         self,
         *,
@@ -755,14 +794,17 @@ class ResearchService:
         if self.memory_eval_v2_repository is None:
             return None
 
-        payload = []
-        for item in serialize_messages(round_messages):
-            entry = {"message": item}
-            if session_id is not None:
-                entry["thread_id"] = session_id
-            if round_index is not None:
-                entry["round_index"] = round_index
-            payload.append(entry)
+        if _is_serialized_round_payload(round_messages):
+            payload = [dict(item) for item in round_messages]
+        else:
+            payload = []
+            for item in serialize_messages(round_messages):
+                entry = {"message": item}
+                if session_id is not None:
+                    entry["thread_id"] = session_id
+                if round_index is not None:
+                    entry["round_index"] = round_index
+                payload.append(entry)
         started = perf_counter()
         dispatch_success = False
         result = None

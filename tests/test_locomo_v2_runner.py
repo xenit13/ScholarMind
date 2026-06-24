@@ -1,7 +1,7 @@
 """Tests for the LOCOMO v2 evaluation runner.
 
 Uses a fake ResearchService to verify the runner:
-- Replays only memory-bearing user turns (skips distractors and assistant turns)
+- Replays complete transcript rounds directly into memory extraction
 - Asks each QA and captures the prediction
 - Populates prediction_key and {prediction_key}_context on each QA
 """
@@ -16,7 +16,6 @@ import pytest
 
 from scholar_mind.eval.locomo_v2_runner import (
     HttpResearchServiceClient,
-    _iter_memory_bearing_turns,
     ask_question,
     replay_memory_turns,
     run_locomo_v2_eval,
@@ -29,12 +28,13 @@ def _turn(
     *,
     seed_id: str | None = None,
     is_distractor: bool | None = None,
+    dia_id: str = "s1:1",
 ) -> dict[str, Any]:
     if is_distractor is None:
         is_distractor = seed_id is None
     return {
         "speaker": speaker,
-        "dia_id": "s1:1",
+        "dia_id": dia_id,
         "text": text,
         "metadata": {
             "seed_id": seed_id,
@@ -60,6 +60,7 @@ class _FakeResearchService:
         self.answer = answer
         self.citations = citations or []
         self.stream_calls: list[dict[str, Any]] = []
+        self.transcript_calls: list[dict[str, Any]] = []
         self.memory_manager = type("M", (), {"extract_pending_memories": self._noop})()
 
     @staticmethod
@@ -83,10 +84,28 @@ class _FakeResearchService:
                 "request_payload": request_payload,
             }
         )
-        # memory_extraction_enabled=True calls are replays; don't emit an answer
+        # Extraction-only stream calls should not emit answer events.
         if request_payload.get("memory_extraction_enabled"):
             return
         yield "answer", {"answer": self.answer, "citations": self.citations}
+
+    async def extract_transcript_memories(
+        self,
+        *,
+        user_id: str,
+        request_id: str,
+        session_id: str,
+        round_messages: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        self.transcript_calls.append(
+            {
+                "user_id": user_id,
+                "request_id": request_id,
+                "session_id": session_id,
+                "round_messages": round_messages,
+            }
+        )
+        return {"request_id": request_id, "dispatched": True}
 
 
 class _FakeHttpStream:
@@ -130,68 +149,33 @@ class _FakeHttpClient:
             "",
         ])
 
-
-# ---------- _iter_memory_bearing_turns ----------
-
-
-def test_iter_skips_distractor_turns():
-    conv = _make_conversation({
-        1: [
-            _turn("user", "memory one", seed_id="seed_a"),
-            _turn("assistant", "ok"),
-            _turn("user", "distractor chat", is_distractor=True),
-        ]
-    })
-    turns = _iter_memory_bearing_turns(conv)
-    assert len(turns) == 1
-    assert turns[0][1]["metadata"]["seed_id"] == "seed_a"
-
-
-def test_iter_skips_assistant_turns_even_if_seed_set():
-    conv = _make_conversation({
-        1: [
-            _turn("assistant", "assistant repeating memory", seed_id="seed_a"),
-            _turn("user", "real memory", seed_id="seed_a"),
-        ]
-    })
-    turns = _iter_memory_bearing_turns(conv)
-    assert len(turns) == 1
-    assert turns[0][1]["speaker"] == "user"
-
-
-def test_iter_skips_empty_text():
-    conv = _make_conversation({
-        1: [
-            _turn("user", "", seed_id="seed_a"),
-            _turn("user", "real", seed_id="seed_b"),
-        ]
-    })
-    turns = _iter_memory_bearing_turns(conv)
-    assert len(turns) == 1
-    assert turns[0][1]["metadata"]["seed_id"] == "seed_b"
-
-
-def test_iter_returns_in_session_order():
-    conv = _make_conversation({
-        1: [_turn("user", "first", seed_id="s1")],
-        2: [_turn("user", "second", seed_id="s2")],
-        3: [_turn("user", "third", seed_id="s3")],
-    })
-    turns = _iter_memory_bearing_turns(conv)
-    sessions = [t[0] for t in turns]
-    assert sessions == [1, 2, 3]
+    async def post(self, url: str, *, json: dict[str, Any]):
+        self.calls.append({"method": "POST", "url": url, "json": json})
+        return type(
+            "Resp",
+            (),
+            {
+                "raise_for_status": lambda self: None,
+                "json": lambda self: {
+                    "success": True,
+                    "data": {"request_id": json["request_id"], "dispatched": True},
+                },
+            },
+        )()
 
 
 # ---------- replay_memory_turns ----------
 
 
 @pytest.mark.asyncio
-async def test_replay_calls_stream_for_each_memory_turn():
+async def test_replay_extracts_complete_transcript_rounds_without_streaming():
     conv = _make_conversation({
         1: [
-            _turn("user", "memory one", seed_id="seed_a"),
-            _turn("user", "memory two", seed_id="seed_b"),
-            _turn("user", "distractor", is_distractor=True),
+            _turn("assistant", "assistant-only preface", seed_id="seed_skip", dia_id="s1:1"),
+            _turn("user", "memory one", seed_id="seed_a", dia_id="s1:2"),
+            _turn("assistant", "assistant response", seed_id="seed_a", dia_id="s1:3"),
+            _turn("user", "distractor", is_distractor=True, dia_id="s1:4"),
+            _turn("assistant", "assistant response to distractor", dia_id="s1:5"),
         ]
     })
     fake = _FakeResearchService()
@@ -202,14 +186,18 @@ async def test_replay_calls_stream_for_each_memory_turn():
         top_k=4,
     )
     assert count == 2
-    # Each replay should set memory_extraction_enabled=True
-    assert len(fake.stream_calls) == 2
-    for call in fake.stream_calls:
-        assert call["request_payload"]["memory_extraction_enabled"] is True
-        assert call["request_payload"]["memory_extraction_enabled"] is True
-    # Each call should use a distinct session_id (so memory extracts don't collide)
-    session_ids = [c["session_id"] for c in fake.stream_calls]
-    assert len(set(session_ids)) == 2
+    assert fake.stream_calls == []
+    assert len(fake.transcript_calls) == 2
+
+    first_round = fake.transcript_calls[0]["round_messages"]
+    assert [item["message_id"] for item in first_round] == ["s1:2", "s1:3"]
+    assert [item["message"]["type"] for item in first_round] == ["human", "ai"]
+    assert first_round[0]["metadata"]["seed_id"] == "seed_a"
+    assert first_round[1]["metadata"]["seed_id"] == "seed_a"
+
+    second_round = fake.transcript_calls[1]["round_messages"]
+    assert [item["message_id"] for item in second_round] == ["s1:4", "s1:5"]
+    assert second_round[0]["metadata"]["is_distractor"] is True
 
 
 @pytest.mark.asyncio
@@ -232,6 +220,36 @@ async def test_replay_calls_wait_for_pending_extractions():
         top_k=4,
     )
     assert wait_calls == [{"timeout": 300.0}]
+
+
+@pytest.mark.asyncio
+async def test_replay_starts_new_round_at_each_user_turn():
+    conv = _make_conversation({
+        1: [
+            _turn("user", "first user message", seed_id="seed_a", dia_id="s1:1"),
+            _turn("user", "second user message", seed_id="seed_b", dia_id="s1:2"),
+            _turn("assistant", "assistant follows second", seed_id="seed_b", dia_id="s1:3"),
+        ]
+    })
+    fake = _FakeResearchService()
+
+    count = await replay_memory_turns(
+        research_service=fake,
+        conversation=conv,
+        user_id="u1",
+        top_k=4,
+    )
+
+    assert count == 2
+    assert [item["message_id"] for item in fake.transcript_calls[0]["round_messages"]] == [
+        "s1:1"
+    ]
+    assert fake.transcript_calls[0]["round_messages"][0]["round_index"] == 1
+    assert [item["message_id"] for item in fake.transcript_calls[1]["round_messages"]] == [
+        "s1:2",
+        "s1:3",
+    ]
+    assert fake.transcript_calls[1]["round_messages"][0]["round_index"] == 2
 
 
 @pytest.mark.asyncio
@@ -283,6 +301,39 @@ async def test_http_research_service_client_posts_stream_payload_and_parses_sse(
                 "conditional_memory_injection": False,
                 "memory_extraction_enabled": True,
                 "request_memory_extraction_enabled": True,
+                "wait_for_pending_extractions": True,
+            },
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_http_research_service_client_posts_transcript_extraction_payload():
+    _FakeHttpClient.calls = []
+    client = HttpResearchServiceClient(
+        "http://api.test",
+        http_client_factory=_FakeHttpClient,
+    )
+
+    result = await client.extract_transcript_memories(
+        user_id="u1",
+        request_id="req1",
+        session_id="s1",
+        round_messages=[{"message_id": "s1:1", "message": {"type": "human", "data": {}}}],
+    )
+
+    assert result == {"request_id": "req1", "dispatched": True}
+    assert _FakeHttpClient.calls == [
+        {
+            "method": "POST",
+            "url": "http://api.test/api/v1/research/memory/transcript",
+            "json": {
+                "user_id": "u1",
+                "request_id": "req1",
+                "session_id": "s1",
+                "round_messages": [
+                    {"message_id": "s1:1", "message": {"type": "human", "data": {}}}
+                ],
                 "wait_for_pending_extractions": True,
             },
         }
@@ -378,10 +429,10 @@ async def test_run_eval_replays_memory_before_asking(tmp_path):
         prediction_key="m",
         progress_file=progress,
     )
-    # Should be: 1 replay (memory) + 1 ask = 2 stream calls
-    assert len(fake.stream_calls) == 2
-    assert fake.stream_calls[0]["request_payload"]["memory_extraction_enabled"] is True
-    assert fake.stream_calls[1]["request_payload"]["memory_extraction_enabled"] is False
+    # Replay uses transcript extraction; only the QA phase uses stream().
+    assert len(fake.transcript_calls) == 1
+    assert len(fake.stream_calls) == 1
+    assert fake.stream_calls[0]["request_payload"]["memory_extraction_enabled"] is False
     # Progress file should exist and contain the prediction
     assert progress.exists()
     payload = json.loads(progress.read_text(encoding="utf-8"))

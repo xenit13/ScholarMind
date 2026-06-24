@@ -15,6 +15,7 @@ from scholar_mind.models.domain import (
     PaperReadingRequest,
     QueryType,
     StudyPlanRequest,
+    TranscriptMemoryExtractionRequest,
     TrendRequest,
 )
 from scholar_mind.rag.top_k import IDEA_EVIDENCE_TOP_K
@@ -113,6 +114,27 @@ async def study_plan(request: StudyPlanRequest, container=CONTAINER_DEP):
 async def paper_reading(request: PaperReadingRequest, container=CONTAINER_DEP):
     started = perf_counter()
     result = await container.research_service.paper_reading(request)
+    return success_response(result, started)
+
+
+@router.post("/memory/transcript")
+async def extract_transcript_memory(
+    request: TranscriptMemoryExtractionRequest,
+    container=CONTAINER_DEP,
+):
+    started = perf_counter()
+    result = container.research_service.extract_transcript_memories(
+        user_id=request.user_id,
+        request_id=request.request_id,
+        session_id=request.session_id,
+        round_messages=[
+            item.model_dump(mode="json") for item in request.round_messages
+        ],
+    )
+    if request.wait_for_pending_extractions:
+        wait = getattr(container.research_service, "wait_for_pending_extractions", None)
+        if callable(wait):
+            wait(timeout=300.0)
     return success_response(result, started)
 
 

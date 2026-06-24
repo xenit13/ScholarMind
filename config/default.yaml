@@ -9,10 +9,10 @@ qdrant_url: http://localhost:6333
 qdrant_location: data/qdrant
 celery_task_always_eager: false
 llm_provider: openai_compatible
-#llm_reasoning_model: openai/gpt-5.4
-#llm_light_model: openai/gpt-5.4-mini
-llm_reasoning_model: deepseek-v4-flash
-llm_light_model: deepseek-v4-flash
+llm_reasoning_model: openai/gpt-5.4
+llm_light_model: openai/gpt-5.4-mini
+#llm_reasoning_model: deepseek-v4-flash
+#llm_light_model: deepseek-v4-flash
 llm_base_url:
 llm_api_key:
 llm_request_timeout_seconds: 180.0
