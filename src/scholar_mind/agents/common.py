@@ -180,7 +180,14 @@ def _structured_output_runnable(llm, schema):
     structured_output = llm.with_structured_output
     kwargs: dict[str, Any] = {"include_raw": True}
     if _accepts_keyword(structured_output, "method"):
-        kwargs["method"] = "function_calling"
+        # DeepSeek thinking-mode rejects function_calling ("tool_choice unsupported")
+        # and json_schema ("response_format type unavailable"). json_mode sends
+        # response_format={"type":"json_object"} which works in thinking mode.
+        model_name = str(getattr(llm, "model_name", "") or getattr(llm, "model", "") or "").lower()
+        if "deepseek" in model_name:
+            kwargs["method"] = "json_mode"
+        else:
+            kwargs["method"] = "function_calling"
     return structured_output(schema, **kwargs)
 
 

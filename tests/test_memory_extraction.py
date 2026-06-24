@@ -347,3 +347,48 @@ def test_memory_application_only_round_does_not_rewrite_preferences():
     assert candidates == []
     assert usage["total_tokens"] == 0
     assert success is False
+
+
+def test_candidate_extraction_prompt_specifies_strict_field_types_and_ranges():
+    """Prompt must tell the LLM the exact allowed types/ranges so it stops
+    returning malformed values (e.g. memory_type='structured', importance='medium').
+    """
+    round_messages = [
+        {
+            "message": serialize_messages(
+                [HumanMessage(content="我把论文《X》标为 anchor paper")]
+            )[0]
+        }
+    ]
+    prompt = _build_candidate_extraction_prompt(round_messages)
+
+    # Field-level type/range contract
+    assert "MUST be one of the EXACT values" in prompt
+    assert "`preference`, `research_interest`, `knowledge_level`, `goal`, `workflow`, `project_constraint`, `paper_read`, `interaction_summary`, `feedback`" in prompt
+    assert "MUST be a float in `[0.0, 1.0]`" in prompt
+    assert "Words like `medium`/`high`/`中`/`高` are INVALID" in prompt
+    assert "MUST be one of the EXACT values `explicit`, `conversation`, `system_extracted`" in prompt
+    assert "each entry MUST be an OBJECT" in prompt
+    assert "wrap it as" in prompt  # tells LLM how to fix string evidence
+
+
+def test_candidate_extraction_prompt_includes_worked_example():
+    """Prompt must include a complete real example so LLM sees the expected shape."""
+    round_messages = [
+        {
+            "message": serialize_messages(
+                [HumanMessage(content="demo")]
+            )[0]
+        }
+    ]
+    prompt = _build_candidate_extraction_prompt(round_messages)
+
+    assert "# Worked example" in prompt
+    # Example demonstrates all the correct types
+    assert '"memory_type": "paper_read"' in prompt
+    assert '"memory_type": "preference"' in prompt
+    assert '"importance": 0.8' in prompt
+    assert '"confidence": 0.9' in prompt
+    assert '"source": "conversation"' in prompt
+    assert '"evidence": [{"message_id": "message-0"}]' in prompt
+    assert '"keywords": ["SWE-chat", "anchor paper"]' in prompt

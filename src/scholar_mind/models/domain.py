@@ -601,6 +601,9 @@ class AskRequest(BaseModel):
     paper_ids: list[str] = Field(default_factory=list)
     rag_strategy: RetrievalStrategyName = RetrievalStrategyName.HYBRID
     conditional_memory_injection: bool = False
+    memory_extraction_enabled: bool | None = None
+    request_memory_extraction_enabled: bool | None = None
+    wait_for_pending_extractions: bool = False
 
 
 class ChatRequest(BaseModel):
@@ -610,6 +613,25 @@ class ChatRequest(BaseModel):
     paper_ids: list[str] = Field(default_factory=list)
     rag_strategy: RetrievalStrategyName = RetrievalStrategyName.HYBRID
     conditional_memory_injection: bool = False
+    memory_extraction_enabled: bool | None = None
+    request_memory_extraction_enabled: bool | None = None
+    wait_for_pending_extractions: bool = False
+
+
+class TranscriptMemoryMessage(BaseModel):
+    message: dict[str, Any]
+    message_id: str
+    thread_id: str | None = None
+    round_index: int | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TranscriptMemoryExtractionRequest(BaseModel):
+    user_id: str
+    request_id: str
+    session_id: str
+    round_messages: list[TranscriptMemoryMessage] = Field(min_length=1)
+    wait_for_pending_extractions: bool = True
 
 
 class IdeaNoveltyRequest(BaseModel):
