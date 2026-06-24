@@ -1,0 +1,19 @@
+{
+  "gold_overall_accuracy": 1.0,
+  "gold_by_category": {
+    "1": 1.0,
+    "2": 1.0,
+    "3": 1.0,
+    "4": 1.0,
+    "5": 1.0
+  },
+  "random_overall_accuracy": 0.048,
+  "random_by_category": {
+    "1": 0.046,
+    "2": 0.068,
+    "3": 0.067,
+    "4": 0.058,
+    "5": 0.0
+  },
+  "structural_check_passed": true
+}
