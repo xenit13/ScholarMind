@@ -771,6 +771,7 @@ def test_research_service_schedules_request_scoped_memory_extraction(
 
     def _fake_enqueue(**kwargs):
         scheduled_calls.append(kwargs)
+        return "fake_async_result"  # truthy sentinel so dispatch_success=True
 
     monkeypatch.setattr(
         research_module,
@@ -809,6 +810,70 @@ def test_research_service_schedules_request_scoped_memory_extraction(
     assert event is not None
     assert event["dispatch_success"] is True
     assert event["total_tokens"] is None
+
+
+def test_research_service_transcript_extraction_preserves_serialized_message_payload(
+    memory_eval_components,
+    monkeypatch,
+):
+    scheduled_calls = []
+
+    from scholar_mind.services import research as research_module
+
+    def _fake_enqueue(**kwargs):
+        scheduled_calls.append(kwargs)
+        return "fake_async_result"
+
+    monkeypatch.setattr(
+        research_module,
+        "_enqueue_request_memory_extraction",
+        _fake_enqueue,
+        raising=False,
+    )
+
+    service = ResearchService(
+        settings=SimpleNamespace(),
+        session_repository=SimpleNamespace(),
+        metrics_repository=SimpleNamespace(),
+        memory_manager=SimpleNamespace(),
+        orchestrator=SimpleNamespace(),
+        online_eval_repository=None,
+        memory_eval_v2_repository=memory_eval_components["memory_repo"],
+        llm=None,
+    )
+
+    result = service.extract_transcript_memories(
+        user_id="user_1",
+        request_id="req_transcript",
+        session_id="user_1-locomo-replay",
+        round_messages=[
+            {
+                "message": {"type": "human", "data": {"content": "我偏好短答案"}},
+                "message_id": "s1:1",
+                "thread_id": "user_1-locomo-replay",
+                "round_index": 1,
+                "metadata": {"speaker": "user"},
+            }
+        ],
+    )
+
+    assert result == {"request_id": "req_transcript", "dispatched": True}
+    assert scheduled_calls == [
+        {
+            "user_id": "user_1",
+            "request_id": "req_transcript",
+            "round_messages": [
+                {
+                    "message": {"type": "human", "data": {"content": "我偏好短答案"}},
+                    "message_id": "s1:1",
+                    "thread_id": "user_1-locomo-replay",
+                    "round_index": 1,
+                    "metadata": {"speaker": "user"},
+                }
+            ],
+            "explicit_memories": [],
+        }
+    ]
 
 
 def test_research_service_does_not_fallback_to_sync_extraction_when_enqueue_fails(

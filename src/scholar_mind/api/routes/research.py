@@ -15,6 +15,7 @@ from scholar_mind.models.domain import (
     PaperReadingRequest,
     QueryType,
     StudyPlanRequest,
+    TranscriptMemoryExtractionRequest,
     TrendRequest,
 )
 from scholar_mind.rag.top_k import IDEA_EVIDENCE_TOP_K
@@ -63,6 +64,17 @@ def _memory_injection_flag(settings, value: bool | None) -> bool:
     return bool(value)
 
 
+def _memory_control_payload(request) -> dict:
+    payload = {}
+    for key in ("memory_extraction_enabled", "request_memory_extraction_enabled"):
+        value = getattr(request, key, None)
+        if value is not None:
+            payload[key] = value
+    if getattr(request, "wait_for_pending_extractions", False):
+        payload["wait_for_pending_extractions"] = True
+    return payload
+
+
 @router.post("/ask")
 async def ask(request: AskRequest, container=CONTAINER_DEP):
     started = perf_counter()
@@ -105,6 +117,27 @@ async def paper_reading(request: PaperReadingRequest, container=CONTAINER_DEP):
     return success_response(result, started)
 
 
+@router.post("/memory/transcript")
+async def extract_transcript_memory(
+    request: TranscriptMemoryExtractionRequest,
+    container=CONTAINER_DEP,
+):
+    started = perf_counter()
+    result = container.research_service.extract_transcript_memories(
+        user_id=request.user_id,
+        request_id=request.request_id,
+        session_id=request.session_id,
+        round_messages=[
+            item.model_dump(mode="json") for item in request.round_messages
+        ],
+    )
+    if request.wait_for_pending_extractions:
+        wait = getattr(container.research_service, "wait_for_pending_extractions", None)
+        if callable(wait):
+            wait(timeout=300.0)
+    return success_response(result, started)
+
+
 @router.post("/ask/stream")
 async def ask_stream(request: AskRequest, container=CONTAINER_DEP):
     return _stream_response(
@@ -120,6 +153,7 @@ async def ask_stream(request: AskRequest, container=CONTAINER_DEP):
             "conditional_memory_injection": _request_memory_injection_flag(
                 container.settings, request
             ),
+            **_memory_control_payload(request),
         },
     )
 
@@ -139,6 +173,7 @@ async def chat_stream(request: ChatRequest, container=CONTAINER_DEP):
             "conditional_memory_injection": _request_memory_injection_flag(
                 container.settings, request
             ),
+            **_memory_control_payload(request),
         },
     )
 
@@ -449,5 +484,9 @@ def _stream_response(container, *, query, user_id, session_id, query_type, reque
             request_payload=request_payload,
         ):
             yield format_sse(event, data)
+        if request_payload.get("wait_for_pending_extractions"):
+            wait = getattr(container.research_service, "wait_for_pending_extractions", None)
+            if callable(wait):
+                wait(timeout=300.0)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

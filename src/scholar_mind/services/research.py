@@ -36,7 +36,11 @@ def _enqueue_request_memory_extraction(
     request_id: str,
     round_messages: list[dict],
     explicit_memories: list[str],
-) -> None:
+):
+    """Dispatch the memory-extraction Celery task and return its AsyncResult.
+
+    Returns None if dispatch failed (so callers can skip waiting).
+    """
     from scholar_mind.pipeline.tasks import celery_app
 
     kwargs = {
@@ -45,11 +49,28 @@ def _enqueue_request_memory_extraction(
         "round_messages": round_messages,
         "explicit_memories": explicit_memories,
     }
-    task = celery_app.tasks.get(REQUEST_MEMORY_EXTRACTION_TASK)
-    if bool(celery_app.conf.task_always_eager) and task is not None:
-        task.apply_async(kwargs=kwargs)
-        return
-    celery_app.send_task(REQUEST_MEMORY_EXTRACTION_TASK, kwargs=kwargs, retry=False)
+    try:
+        return celery_app.send_task(REQUEST_MEMORY_EXTRACTION_TASK, kwargs=kwargs, retry=False)
+    except Exception:
+        logger.exception(
+            "Failed to dispatch memory extraction task: request_id=%s",
+            request_id,
+        )
+        return None
+
+
+def _payload_round_index(round_messages: list[dict]) -> int | None:
+    for item in round_messages:
+        if isinstance(item, dict) and item.get("round_index") is not None:
+            try:
+                return int(item["round_index"])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _is_serialized_round_payload(round_messages: list) -> bool:
+    return all(isinstance(item, dict) and "message" in item for item in round_messages)
 
 
 def _resolve_citation_chunk_ids(
@@ -181,6 +202,11 @@ class ResearchService:
         self.online_eval_repository = online_eval_repository
         self.memory_eval_v2_repository = memory_eval_v2_repository
         self.llm = llm
+        # Tracks in-flight memory-extraction Celery tasks so callers (e.g. the
+        # LOCOMO v2 runner) can wait for replay-phase extraction to complete
+        # before asking QAs. Production calls never wait; async semantics are
+        # preserved by default.
+        self._pending_extractions: list = []
 
     async def ask(self, request: AskRequest) -> ResearchAnswer:
         state, request_id, latency = await self._execute(
@@ -686,16 +712,70 @@ class ResearchService:
                 messages=round_messages,
                 explicit_memories=stored.get("explicit_memory_candidates", []),
             )
-            self._dispatch_request_memory_extraction(
-                user_id=user_id,
-                session_id=session_id,
-                request_id=request_id,
-                round_index=round_index,
-                round_messages=round_messages,
-                explicit_memories=stored.get("explicit_memory_candidates", []),
-            )
+            # LOCOMO runner sets request_memory_extraction_enabled=False during
+            # the QA phase to avoid extracting memories from the question itself.
+            # Default (key absent or True) preserves existing behavior.
+            request_payload = stored.get("request_payload") or {}
+            if request_payload.get("request_memory_extraction_enabled", True):
+                async_result = self._dispatch_request_memory_extraction(
+                    user_id=user_id,
+                    session_id=session_id,
+                    request_id=request_id,
+                    round_index=round_index,
+                    round_messages=round_messages,
+                    explicit_memories=stored.get("explicit_memory_candidates", []),
+                )
+                if async_result is not None:
+                    self._pending_extractions.append(async_result)
 
         return stored
+
+    def wait_for_pending_extractions(self, *, timeout: float = 300.0) -> dict[str, int]:
+        """Wait for all in-flight memory-extraction Celery tasks to complete.
+
+        Returns a summary {total, succeeded, failed}. Clears the pending list.
+        Production callers never invoke this — async semantics are preserved.
+        Only specialized callers (LOCOMO v2 runner) opt in to sync replay-phase
+        extraction before asking QAs.
+        """
+        if not self._pending_extractions:
+            return {"total": 0, "succeeded": 0, "failed": 0}
+        pending = list(self._pending_extractions)
+        self._pending_extractions.clear()
+        succeeded = 0
+        failed = 0
+        for result in pending:
+            try:
+                result.get(timeout=timeout)
+                succeeded += 1
+            except Exception:
+                failed += 1
+        return {"total": len(pending), "succeeded": succeeded, "failed": failed}
+
+    def extract_transcript_memories(
+        self,
+        *,
+        user_id: str,
+        request_id: str,
+        session_id: str,
+        round_messages: list[dict],
+    ) -> dict[str, object]:
+        """Dispatch memory extraction for an imported transcript round.
+
+        This bypasses the agent graph; callers have already supplied the
+        serialized transcript messages and stable message ids.
+        """
+        async_result = self._dispatch_request_memory_extraction(
+            user_id=user_id,
+            session_id=session_id,
+            request_id=request_id,
+            round_index=_payload_round_index(round_messages),
+            round_messages=round_messages,
+            explicit_memories=[],
+        )
+        if async_result is not None:
+            self._pending_extractions.append(async_result)
+        return {"request_id": request_id, "dispatched": async_result is not None}
 
     def _dispatch_request_memory_extraction(
         self,
@@ -706,29 +786,37 @@ class ResearchService:
         explicit_memories: list[str] | None,
         session_id: str | None = None,
         round_index: int | None = None,
-    ) -> None:
-        if self.memory_eval_v2_repository is None:
-            return
+    ):
+        """Dispatch extraction; return the AsyncResult (or None) so callers can wait.
 
-        payload = []
-        for item in serialize_messages(round_messages):
-            entry = {"message": item}
-            if session_id is not None:
-                entry["thread_id"] = session_id
-            if round_index is not None:
-                entry["round_index"] = round_index
-            payload.append(entry)
+        Returns None silently when memory_eval_v2_repository is unset or dispatch fails.
+        """
+        if self.memory_eval_v2_repository is None:
+            return None
+
+        if _is_serialized_round_payload(round_messages):
+            payload = [dict(item) for item in round_messages]
+        else:
+            payload = []
+            for item in serialize_messages(round_messages):
+                entry = {"message": item}
+                if session_id is not None:
+                    entry["thread_id"] = session_id
+                if round_index is not None:
+                    entry["round_index"] = round_index
+                payload.append(entry)
         started = perf_counter()
         dispatch_success = False
+        result = None
 
         try:
-            _enqueue_request_memory_extraction(
+            result = _enqueue_request_memory_extraction(
                 user_id=user_id,
                 request_id=request_id,
                 round_messages=payload,
                 explicit_memories=explicit_memories or [],
             )
-            dispatch_success = True
+            dispatch_success = result is not None
         except Exception:
             logger.exception(
                 "Request-scoped memory extraction dispatch failed: request_id=%s",
@@ -741,6 +829,7 @@ class ResearchService:
             dispatch_latency_ms=int((perf_counter() - started) * 1000),
             dispatch_success=dispatch_success,
         )
+        return result
 
     def _persist_request_audit(
         self,

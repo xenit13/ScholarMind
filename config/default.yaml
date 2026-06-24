@@ -5,16 +5,18 @@ bootstrap_sample_data: true
 database_url: sqlite:///data/sqlite/scholar_mind.db
 checkpoint_database_url: sqlite:///data/sqlite/checkpoints.db
 redis_url: redis://localhost:6379/0
-qdrant_url:
+qdrant_url: http://localhost:6333
 qdrant_location: data/qdrant
 celery_task_always_eager: false
 llm_provider: openai_compatible
 llm_reasoning_model: openai/gpt-5.4
 llm_light_model: openai/gpt-5.4-mini
+#llm_reasoning_model: deepseek-v4-flash
+#llm_light_model: deepseek-v4-flash
 llm_base_url:
 llm_api_key:
-llm_request_timeout_seconds: 20.0
-llm_max_retries: 1
+llm_request_timeout_seconds: 180.0
+llm_max_retries: 2
 embedding_model: embedding-3
 embedding_base_url: https://open.bigmodel.cn/api/paas/v4
 #embedding_model: baai/bge-m3
